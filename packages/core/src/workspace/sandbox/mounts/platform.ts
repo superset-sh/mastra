@@ -5,6 +5,8 @@
  * listing active FUSE mounts, unmounting, and finding tools.
  */
 
+import * as nodeFs from 'node:fs';
+
 import { LOG_PREFIX } from './types';
 import type { LocalMountContext } from './types';
 
@@ -119,7 +121,6 @@ export async function findTool(name: string, ctx: LocalMountContext): Promise<st
  */
 export function checkMacFuse(): boolean {
   try {
-    const nodeFs = require('node:fs');
     return nodeFs.existsSync('/Library/Filesystems/macfuse.fs');
   } catch {
     return false;

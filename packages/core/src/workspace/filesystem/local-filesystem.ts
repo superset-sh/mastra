@@ -36,6 +36,7 @@ import type {
 import { fsExists, fsStat, isEnoentError, isEexistError } from './fs-utils';
 import { MastraFilesystem } from './mastra-filesystem';
 import type { MastraFilesystemOptions } from './mastra-filesystem';
+import type { FilesystemMountConfig } from './mount';
 
 /**
  * Local filesystem provider configuration.
@@ -96,6 +97,15 @@ export interface LocalFilesystemOptions extends MastraFilesystemOptions {
    *   optional request context so you can extend or customise per-request.
    */
   instructions?: InstructionsOption;
+}
+
+/**
+ * Mount configuration for local filesystems.
+ * Used by LocalSandbox to create a symlink from the mount path to the basePath.
+ */
+export interface LocalMountConfig extends FilesystemMountConfig {
+  type: 'local';
+  basePath: string;
 }
 
 /**
@@ -187,6 +197,14 @@ export class LocalFilesystem extends MastraFilesystem {
     this.readOnly = options.readOnly;
     this._allowedPaths = (options.allowedPaths ?? []).map(p => nodePath.resolve(p));
     this._instructionsOverride = options.instructions;
+  }
+
+  /**
+   * Return mount config for sandbox integration.
+   * LocalSandbox uses this to create a symlink from the mount path to basePath.
+   */
+  getMountConfig(): LocalMountConfig {
+    return { type: 'local', basePath: this._basePath };
   }
 
   private generateId(): string {

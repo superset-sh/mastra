@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import type { FilesystemMountConfig } from '../../filesystem/mount';
 
 import { checkMacFuse, findTool, getInstallInstructions } from './platform';
-import { LOG_PREFIX, validateBucketName } from './types';
+import { LOG_PREFIX, MountToolNotFoundError, validateBucketName } from './types';
 import type { LocalMountContext } from './types';
 
 /**
@@ -40,13 +40,13 @@ export async function mountGCS(mountPath: string, config: LocalGCSMountConfig, c
   const gcsfusePath = await findTool('gcsfuse', ctx);
   if (!gcsfusePath) {
     const instructions = getInstallInstructions('gcsfuse', ctx.platform);
-    throw new Error(`gcsfuse is not installed. ${instructions}`);
+    throw new MountToolNotFoundError(`gcsfuse is not installed. ${instructions}`);
   }
 
   // macOS: verify macFUSE is installed
   if (ctx.platform === 'darwin' && !checkMacFuse()) {
     const instructions = getInstallInstructions('macfuse', ctx.platform);
-    throw new Error(`macFUSE is required for FUSE mounts on macOS. ${instructions}`);
+    throw new MountToolNotFoundError(`macFUSE is required for FUSE mounts on macOS. ${instructions}`);
   }
 
   // Get uid/gid for proper file ownership

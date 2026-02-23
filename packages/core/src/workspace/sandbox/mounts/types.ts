@@ -24,6 +24,17 @@ export interface LocalMountContext {
 }
 
 /**
+ * Error thrown when a required FUSE tool (s3fs, gcsfuse, macFUSE) is not installed.
+ * Distinguished from actual mount errors so callers can warn instead of error.
+ */
+export class MountToolNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MountToolNotFoundError';
+  }
+}
+
+/**
  * Validate a bucket name before interpolating into shell commands.
  * Covers S3, GCS, and S3-compatible (R2, MinIO) naming rules.
  */

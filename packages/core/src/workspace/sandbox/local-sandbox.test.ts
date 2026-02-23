@@ -11,6 +11,7 @@ import { LocalSandbox } from './local-sandbox';
 import * as gcsMod from './mounts/gcs';
 import * as platformMod from './mounts/platform';
 import * as s3Mod from './mounts/s3';
+import { MountToolNotFoundError } from './mounts/types';
 import { detectIsolation, isIsolationAvailable, isSeatbeltAvailable, isBwrapAvailable } from './native-sandbox';
 
 describe('LocalSandbox', () => {
@@ -820,8 +821,6 @@ describe('LocalSandbox', () => {
   describe('mount operations', () => {
     let mountSandbox: LocalSandbox;
     let mountDir: string;
-    // All mount paths use /tmp so they work on macOS (no /mnt)
-    let mountTargetBase: string;
 
     function makeMockFs(overrides: Record<string, unknown> = {}) {
       return {
@@ -842,7 +841,6 @@ describe('LocalSandbox', () => {
 
     beforeEach(async () => {
       mountDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mastra-mount-test-'));
-      mountTargetBase = await fs.mkdtemp(path.join(os.tmpdir(), 'mastra-mount-target-'));
       mountSandbox = new LocalSandbox({ workingDirectory: mountDir });
       await mountSandbox._start();
     });
@@ -863,35 +861,66 @@ describe('LocalSandbox', () => {
       } catch {
         // Ignore cleanup errors
       }
-      try {
-        await fs.rm(mountTargetBase, { recursive: true, force: true });
-      } catch {
-        // Ignore
-      }
     });
 
     it('should have a MountManager (because mount() is defined)', () => {
       expect(mountSandbox.mounts).toBeDefined();
     });
 
+    it('should create symlink for local filesystem mount', async () => {
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      // Create a source directory with a file
+      const sourceDir = path.join(mountDir, 'local-source');
+      await fs.mkdir(sourceDir, { recursive: true });
+      await fs.writeFile(path.join(sourceDir, 'test.txt'), 'hello from local');
+
+      const mountPath = '/local-data';
+      const result = await mountSandbox.mount(
+        makeMockFs({
+          id: 'test-local',
+          provider: 'local',
+          getMountConfig: () => ({ type: 'local' as const, basePath: sourceDir }),
+        }) as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.mountPath).toBe(mountPath);
+
+      // Verify symlink was created
+      const hostPath = path.join(mountDir, 'local-data');
+      const stats = await fs.lstat(hostPath);
+      expect(stats.isSymbolicLink()).toBe(true);
+
+      // Verify symlink target
+      const target = await fs.readlink(hostPath);
+      expect(target).toBe(sourceDir);
+
+      // Verify files are accessible through symlink
+      const content = await fs.readFile(path.join(hostPath, 'test.txt'), 'utf-8');
+      expect(content).toBe('hello from local');
+    });
+
     it('should dispatch to mountS3 for S3 config', async () => {
       const mountS3Spy = vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
 
-      const mountPath = path.join(mountTargetBase, 's3-data');
+      const mountPath = '/s3-data';
       const result = await mountSandbox.mount(makeMockFs() as any, mountPath);
 
       expect(result.success).toBe(true);
       expect(result.mountPath).toBe(mountPath);
       expect(mountS3Spy).toHaveBeenCalledTimes(1);
-      expect(mountS3Spy.mock.calls[0]![0]).toBe(mountPath);
+      // mountS3 receives the resolved host path (workingDir/s3-data)
+      expect(mountS3Spy.mock.calls[0]![0]).toBe(path.join(mountDir, 's3-data'));
     });
 
     it('should dispatch to mountGCS for GCS config', async () => {
       const mountGCSSpy = vi.spyOn(gcsMod, 'mountGCS').mockResolvedValue(undefined);
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
 
-      const mountPath = path.join(mountTargetBase, 'gcs-data');
+      const mountPath = '/gcs-data';
       const result = await mountSandbox.mount(
         makeMockFs({
           id: 'test-gcs',
@@ -903,6 +932,7 @@ describe('LocalSandbox', () => {
 
       expect(result.success).toBe(true);
       expect(mountGCSSpy).toHaveBeenCalledTimes(1);
+      expect(mountGCSSpy.mock.calls[0]![0]).toBe(path.join(mountDir, 'gcs-data'));
     });
 
     it('should reject invalid mount paths', async () => {
@@ -915,7 +945,7 @@ describe('LocalSandbox', () => {
     it('should return error for unsupported mount type', async () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
 
-      const mountPath = path.join(mountTargetBase, 'ftp-data');
+      const mountPath = '/ftp-data';
       const result = await mountSandbox.mount(
         makeMockFs({
           id: 'test-unknown',
@@ -930,7 +960,7 @@ describe('LocalSandbox', () => {
     });
 
     it('should return error when filesystem has no mount config', async () => {
-      const mountPath = path.join(mountTargetBase, 'local');
+      const mountPath = '/local';
       const result = await mountSandbox.mount(
         makeMockFs({
           id: 'test-no-config',
@@ -947,12 +977,12 @@ describe('LocalSandbox', () => {
     it('should reject non-empty directories', async () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
 
-      // Create a non-empty directory
-      const nonEmptyDir = path.join(mountTargetBase, 'nonempty');
-      await fs.mkdir(nonEmptyDir, { recursive: true });
-      await fs.writeFile(path.join(nonEmptyDir, 'existing.txt'), 'content');
+      // Pre-create a non-empty directory under working directory
+      const hostDir = path.join(mountDir, 'nonempty');
+      await fs.mkdir(hostDir, { recursive: true });
+      await fs.writeFile(path.join(hostDir, 'existing.txt'), 'content');
 
-      const result = await mountSandbox.mount(makeMockFs() as any, nonEmptyDir);
+      const result = await mountSandbox.mount(makeMockFs() as any, '/nonempty');
       expect(result.success).toBe(false);
       expect(result.error).toContain('not empty');
     });
@@ -962,7 +992,7 @@ describe('LocalSandbox', () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
       vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
 
-      const mountPath = path.join(mountTargetBase, 's3-cleanup');
+      const mountPath = '/s3-cleanup';
       const mountResult = await mountSandbox.mount(makeMockFs() as any, mountPath);
       expect(mountResult.success).toBe(true);
 
@@ -976,7 +1006,7 @@ describe('LocalSandbox', () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
       const unmountSpy = vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
 
-      const mountPath = path.join(mountTargetBase, 'stop-test');
+      const mountPath = '/stop-test';
       await mountSandbox.mount(makeMockFs() as any, mountPath);
 
       await mountSandbox._stop();
@@ -989,7 +1019,7 @@ describe('LocalSandbox', () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
       const unmountSpy = vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
 
-      const mountPath = path.join(mountTargetBase, 'destroy-test');
+      const mountPath = '/destroy-test';
       await mountSandbox.mount(makeMockFs() as any, mountPath);
 
       await mountSandbox._destroy();
@@ -1011,12 +1041,13 @@ describe('LocalSandbox', () => {
       });
       await seatbeltSandbox._start();
 
-      const mountPath = path.join(mountTargetBase, 'seatbelt-test');
+      const mountPath = '/seatbelt-test';
       await seatbeltSandbox.mount(makeMockFs() as any, mountPath);
 
       const info = await seatbeltSandbox.getInfo();
       const isoConfig = info.metadata?.isolationConfig as { readWritePaths?: string[] } | undefined;
-      expect(isoConfig?.readWritePaths).toEqual(expect.arrayContaining([mountPath]));
+      // Isolation allowlist uses the resolved host path
+      expect(isoConfig?.readWritePaths).toEqual(expect.arrayContaining([path.join(mountDir, 'seatbelt-test')]));
 
       // Clear before destroy to avoid real unmount attempts
       (seatbeltSandbox as any)._activeMountPaths.clear();
@@ -1025,13 +1056,28 @@ describe('LocalSandbox', () => {
     });
 
     it('should handle mount failure gracefully', async () => {
-      vi.spyOn(s3Mod, 'mountS3').mockRejectedValue(new Error('s3fs is not installed'));
+      vi.spyOn(s3Mod, 'mountS3').mockRejectedValue(new Error('mount command failed'));
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
 
-      const mountPath = path.join(mountTargetBase, 'fail-test');
+      const mountPath = '/fail-test';
       const result = await mountSandbox.mount(makeMockFs() as any, mountPath);
 
       expect(result.success).toBe(false);
+      expect(result.error).toContain('mount command failed');
+      expect(result.unavailable).toBeUndefined();
+    });
+
+    it('should mark mount as unavailable when FUSE tool is not installed', async () => {
+      vi.spyOn(s3Mod, 'mountS3').mockRejectedValue(
+        new MountToolNotFoundError('s3fs is not installed. Install s3fs via Homebrew: brew install s3fs'),
+      );
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = '/unavail-test';
+      const result = await mountSandbox.mount(makeMockFs() as any, mountPath);
+
+      expect(result.success).toBe(false);
+      expect(result.unavailable).toBe(true);
       expect(result.error).toContain('s3fs is not installed');
     });
 
@@ -1040,15 +1086,16 @@ describe('LocalSandbox', () => {
       vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(true);
       vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
 
-      const mountPath = path.join(mountTargetBase, 'existing');
+      const mountPath = '/existing';
+      const hostPath = path.join(mountDir, 'existing');
       const config = { type: 's3' as const, bucket: 'my-bucket', region: 'us-east-1' };
 
-      // Write a matching marker file
-      const markerFilename = mountSandbox.mounts.markerFilename(mountPath);
+      // Write a matching marker file using the resolved host path
+      const markerFilename = mountSandbox.mounts.markerFilename(hostPath);
       const configHash = mountSandbox.mounts.computeConfigHash(config);
       const markerDir = '/tmp/.mastra-mounts';
       await fs.mkdir(markerDir, { recursive: true });
-      await fs.writeFile(path.join(markerDir, markerFilename), `${mountPath}|${configHash}`);
+      await fs.writeFile(path.join(markerDir, markerFilename), `${hostPath}|${configHash}`);
 
       try {
         const result = await mountSandbox.mount(makeMockFs({ getMountConfig: () => config }) as any, mountPath);

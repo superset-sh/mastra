@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import type { FilesystemMountConfig } from '../../filesystem/mount';
 
 import { checkMacFuse, findTool, getInstallInstructions } from './platform';
-import { LOG_PREFIX, validateBucketName, validateEndpoint } from './types';
+import { LOG_PREFIX, MountToolNotFoundError, validateBucketName, validateEndpoint } from './types';
 import type { LocalMountContext } from './types';
 
 /**
@@ -47,13 +47,13 @@ export async function mountS3(mountPath: string, config: LocalS3MountConfig, ctx
   const s3fsPath = await findTool('s3fs', ctx);
   if (!s3fsPath) {
     const instructions = getInstallInstructions('s3fs', ctx.platform);
-    throw new Error(`s3fs is not installed. ${instructions}`);
+    throw new MountToolNotFoundError(`s3fs is not installed. ${instructions}`);
   }
 
   // macOS: verify macFUSE is installed
   if (ctx.platform === 'darwin' && !checkMacFuse()) {
     const instructions = getInstallInstructions('macfuse', ctx.platform);
-    throw new Error(`macFUSE is required for FUSE mounts on macOS. ${instructions}`);
+    throw new MountToolNotFoundError(`macFUSE is required for FUSE mounts on macOS. ${instructions}`);
   }
 
   // Get uid/gid for proper file ownership
