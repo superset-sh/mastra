@@ -53,7 +53,7 @@ If your connection drops, use the `runId` to reconnect:
 ```bash
 curl -X POST http://localhost:4111/api/agents/durable-research-agent/observe \
   -H "Content-Type: application/json" \
-  -d '{"runId": "your-run-id", "fromIndex": 5}'
+  -d '{"runId": "your-run-id", "offset": 5}'
 ```
 
 ## How It Works

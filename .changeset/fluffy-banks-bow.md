@@ -60,7 +60,7 @@ const { runId, output } = await durableAgent.stream('Analyze this data...');
 // Client disconnects at event 5...
 
 // Reconnect and resume from where we left off
-const { output: resumed } = await durableAgent.observe(runId, { fromIndex: 6 });
+const { output: resumed } = await durableAgent.observe(runId, { offset: 6 });
 // Receives events 6, 7, 8... from cache, then continues with live events
 ```
 

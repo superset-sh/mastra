@@ -564,7 +564,7 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
     },
 
     async observe(runId, observeOptions) {
-      // Create the stream subscription with fromIndex support
+      // Create the stream subscription with offset support
       const {
         output,
         cleanup: streamCleanup,
