@@ -101,7 +101,16 @@ export interface LocalFilesystemOptions extends MastraFilesystemOptions {
 
 /**
  * Mount configuration for local filesystems.
- * Used by LocalSandbox to create a symlink from the mount path to the basePath.
+ *
+ * When a `LocalFilesystem` is used as a mount in a Workspace with `LocalSandbox`,
+ * the sandbox creates a symlink from `<workingDir>/<mountPath>` → `basePath`.
+ * No FUSE tools are needed for local mounts.
+ *
+ * **`contained: false` caveat:** `CompositeFilesystem` strips mount prefixes and
+ * produces absolute virtual paths (e.g. `/file.txt`). A non-contained
+ * `LocalFilesystem` interprets these as real host paths instead of paths relative
+ * to `basePath`, causing incorrect path resolution. Workspace warns at construction
+ * time if this combination is detected.
  */
 export interface LocalMountConfig extends FilesystemMountConfig {
   type: 'local';

@@ -118,6 +118,10 @@ export async function findTool(name: string, ctx: LocalMountContext): Promise<st
 
 /**
  * Check if macFUSE is installed on macOS.
+ *
+ * Uses a synchronous top-level `import * as nodeFs from 'node:fs'` to avoid
+ * the ESM compatibility issue where `require('node:fs')` compiles to a Proxy
+ * shim (`__require("fs")`) that silently fails in ESM builds.
  */
 export function checkMacFuse(): boolean {
   try {
@@ -129,15 +133,29 @@ export function checkMacFuse(): boolean {
 
 /**
  * Get platform-specific install instructions for a FUSE tool.
+ *
+ * **Notes on macOS:**
+ * - s3fs: The standard `brew install s3fs` formula requires Linux.
+ *   Use the macOS FUSE tap: `brew install gromgit/fuse/s3fs-mac`
+ * - gcsfuse: Not officially supported on macOS (Linux-only).
+ *   A community tap exists (`brew install gromgit/fuse/gcsfuse-mac`)
+ *   but is not maintained by Google — see
+ *   https://github.com/GoogleCloudPlatform/gcsfuse/issues/1299
  */
 export function getInstallInstructions(tool: 's3fs' | 'gcsfuse' | 'macfuse', platform: NodeJS.Platform): string {
   const instructions: Record<string, Record<string, string>> = {
     s3fs: {
-      darwin: 'Install s3fs via Homebrew: brew install s3fs',
+      darwin:
+        'Install s3fs for macOS: brew install gromgit/fuse/s3fs-mac\n' +
+        '  (requires macFUSE: brew install --cask macfuse)\n' +
+        '  Note: the standard `brew install s3fs` formula is Linux-only.',
       linux: 'Install s3fs via apt: sudo apt-get install -y s3fs',
     },
     gcsfuse: {
-      darwin: 'Install gcsfuse via Homebrew: brew install gcsfuse',
+      darwin:
+        'gcsfuse is not officially supported on macOS.\n' +
+        '  Community tap (unsupported): brew install gromgit/fuse/gcsfuse-mac\n' +
+        '  See: https://github.com/GoogleCloudPlatform/gcsfuse/issues/1299',
       linux:
         'Install gcsfuse: see https://cloud.google.com/storage/docs/gcsfuse-install\n' +
         '  sudo apt-get install -y gcsfuse',

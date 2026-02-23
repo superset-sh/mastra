@@ -1,8 +1,16 @@
 /**
  * GCS mount helper using gcsfuse for local sandboxes.
  *
+ * **Platform support:**
+ * - **Linux** — Officially supported. Install via `sudo apt-get install -y gcsfuse`
+ *   or see https://cloud.google.com/storage/docs/gcsfuse-install
+ * - **macOS** — Not officially supported by Google (see
+ *   https://github.com/GoogleCloudPlatform/gcsfuse/issues/1299).
+ *   A community tap exists (`brew install gromgit/fuse/gcsfuse-mac`) but is
+ *   not tested or maintained by the gcsfuse team. Requires macFUSE.
+ *
  * Key differences from E2B:
- * - No auto-install: throws clear error with platform-specific instructions
+ * - No auto-install: throws MountToolNotFoundError with platform-specific instructions
  * - No sudo: FUSE is user-space on host; only retries with sudo if initial mount fails with permission error
  * - Credentials written to namespaced temp file with cleanup in finally block
  * - macFUSE check on macOS before attempting mount

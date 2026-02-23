@@ -2,7 +2,15 @@
 '@mastra/core': minor
 ---
 
-Added FUSE mount support to LocalSandbox for mounting cloud filesystems (S3, GCS) as local directories. When using LocalSandbox with remote filesystems like S3Filesystem or GCSFilesystem, the sandbox now mounts them via s3fs-fuse or gcsfuse so that spawned processes can access cloud storage through the local filesystem. Mount paths are automatically added to the sandbox isolation allowlist (seatbelt/bwrap). All mounts are cleaned up on stop/destroy.
+Added mount support to `LocalSandbox` for local and cloud filesystems:
+
+- **Local mounts** — `LocalFilesystem` mounts use symlinks (no FUSE tools needed)
+- **S3 mounts** — FUSE mount via s3fs-fuse (Linux: `apt install s3fs`, macOS: `brew install gromgit/fuse/s3fs-mac` + macFUSE)
+- **GCS mounts** — FUSE mount via gcsfuse (Linux: `apt install gcsfuse`, macOS: not officially supported)
+
+Virtual mount paths (e.g. `/s3`) are resolved under the sandbox's working directory. Mount paths are automatically added to the sandbox isolation allowlist (seatbelt/bwrap). All mounts are cleaned up on stop/destroy.
+
+When a required FUSE tool is not installed, the mount is marked as `unavailable` with a warning rather than failing the workspace — SDK filesystem methods still work, only sandbox process access to the mount path is affected. Install instructions with platform-specific guidance are included in the warning.
 
 **Usage example:**
 
@@ -18,8 +26,6 @@ const workspace = new Workspace({
 });
 
 await workspace.init();
-// Spawned processes can now read/write /data
+// Spawned processes can now read/write /data via the FUSE mount
 const result = await workspace.executeCommand('ls', ['/data']);
 ```
-
-**Requirements:** s3fs-fuse (for S3) or gcsfuse (for GCS) must be installed on the host. macOS also requires macFUSE. Clear error messages with install instructions are shown if tools are missing.

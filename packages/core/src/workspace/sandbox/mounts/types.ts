@@ -25,7 +25,10 @@ export interface LocalMountContext {
 
 /**
  * Error thrown when a required FUSE tool (s3fs, gcsfuse, macFUSE) is not installed.
- * Distinguished from actual mount errors so callers can warn instead of error.
+ *
+ * Distinguished from general mount errors so `LocalSandbox.mount()` can mark the
+ * mount as `unavailable` (warning) rather than `error`. The workspace still works
+ * via SDK filesystem methods — only sandbox process access to the mount path is affected.
  */
 export class MountToolNotFoundError extends Error {
   constructor(message: string) {

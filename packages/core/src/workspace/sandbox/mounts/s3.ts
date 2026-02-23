@@ -1,8 +1,14 @@
 /**
  * S3 mount helper using s3fs-fuse for local sandboxes.
  *
+ * **Platform support:**
+ * - **Linux** — Install via `sudo apt-get install -y s3fs`
+ * - **macOS** — The standard Homebrew formula (`brew install s3fs`) requires Linux.
+ *   Use the macOS FUSE tap instead: `brew install gromgit/fuse/s3fs-mac`.
+ *   Requires macFUSE (`brew install --cask macfuse`).
+ *
  * Key differences from E2B:
- * - No auto-install: throws clear error with platform-specific instructions
+ * - No auto-install: throws MountToolNotFoundError with platform-specific instructions
  * - No sudo: FUSE is user-space on host; only retries with sudo if initial mount fails with permission error
  * - Credentials written to namespaced temp file with cleanup in finally block
  * - macFUSE check on macOS before attempting mount

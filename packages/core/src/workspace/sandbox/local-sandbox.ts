@@ -371,15 +371,15 @@ export class LocalSandbox extends MastraSandbox {
 
   /**
    * Mount a filesystem at a path on the local host.
-   * Uses FUSE tools (s3fs, gcsfuse) to mount cloud storage.
    *
-   * For local filesystems, mounts are created as symlinks (no FUSE needed).
-   * For S3/GCS, requires the corresponding FUSE tool to be installed.
-   * If the tool is missing, the mount is marked `unavailable` (warning, not error).
+   * - **local** — Creates a symlink from `<workingDir>/<mount>` to the basePath.
+   * - **s3** — FUSE mount via s3fs. Linux: `apt install s3fs`. macOS: `brew install gromgit/fuse/s3fs-mac` + macFUSE.
+   * - **gcs** — FUSE mount via gcsfuse. Linux: `apt install gcsfuse`. macOS: not officially supported.
    *
-   * @param filesystem - The filesystem to mount
-   * @param mountPath - Absolute path where the filesystem should be mounted
-   * @returns Mount result indicating success or failure
+   * Virtual mount paths (e.g. `/s3`) are resolved under the sandbox's workingDirectory.
+   * When the required FUSE tool is missing, the mount is marked `unavailable` (warning, not error)
+   * — the workspace still works via SDK filesystem methods, only sandbox process access is affected.
+   * Other mount types can be handled via the `onMount` hook.
    */
   async mount(filesystem: WorkspaceFilesystem, mountPath: string): Promise<MountResult> {
     validateMountPath(mountPath);
@@ -738,11 +738,13 @@ export class LocalSandbox extends MastraSandbox {
 
   /**
    * Resolve a virtual mount path to a host filesystem path.
-   * Virtual paths like "/s3" become "<workingDir>/s3".
-   * E2B can use root-level paths via sudo, but LocalSandbox resolves under workingDirectory.
+   *
+   * Virtual paths like "/s3" become `<workingDir>/s3`. This differs from E2B
+   * where root-level paths like `/s3` are used directly (E2B runs in a VM with sudo).
+   * LocalSandbox runs on the host, so mounts are scoped under workingDirectory.
    */
   private resolveHostPath(mountPath: string): string {
-    return path.join(this._workingDirectory, mountPath.replace(/^\/+/, ''));
+    return path.join(this.workingDirectory, mountPath.replace(/^\/+/, ''));
   }
 
   /**
