@@ -3,6 +3,7 @@ import type { ProviderDefinedTool } from '@internal/external-types';
 import type { JSONSchema7 } from 'json-schema';
 import type { ZodSchema } from 'zod';
 import type { MastraScorer, MastraScorers, ScoringSamplingConfig } from '../evals';
+import type { PubSub } from '../events/pubsub';
 import type {
   CoreMessage,
   DefaultLLMStreamOptions,
@@ -488,6 +489,12 @@ export interface DurableAgentLike {
    */
   stream(messages: any, options?: any): Promise<any>;
   /**
+   * The PubSub instance used by this durable agent for streaming events.
+   * Used by server handlers to subscribe to the correct event bus when
+   * observing/reconnecting to agent streams.
+   */
+  readonly pubsub?: PubSub;
+  /**
    * Get workflows that need to be registered with Mastra.
    * Called during agent registration to auto-register durable execution workflows.
    */
@@ -498,6 +505,13 @@ export interface DurableAgentLike {
    * @internal
    */
   __setMastra?(mastra: any): void;
+
+  /**
+   * Implementations may proxy all Agent methods to the underlying agent.
+   * For example, InngestAgent uses a Proxy that forwards generate(), listTools(),
+   * getMemory(), etc. to the wrapped Agent instance.
+   */
+  [key: string]: any;
 }
 
 /**

@@ -206,7 +206,10 @@ export class DurableAgent<
   readonly #maxSteps?: number;
 
   /** Inner pubsub (before CachingPubSub wrapper) */
-  readonly #innerPubsub: PubSub;
+  #innerPubsub: PubSub;
+
+  /** Whether the user explicitly provided a pubsub (don't override with mastra.pubsub) */
+  readonly #hasCustomPubsub: boolean;
 
   /** User-provided cache (undefined = inherit from mastra, false = disabled) */
   #cacheConfig: MastraServerCache | false | undefined;
@@ -247,6 +250,7 @@ export class DurableAgent<
     this.#executor = executor ?? localExecutor;
     this.#runRegistry = new ExtendedRunRegistry();
     this.#maxSteps = maxSteps;
+    this.#hasCustomPubsub = !!pubsub;
     this.#innerPubsub = pubsub ?? new EventEmitterPubSub();
     this.#cacheConfig = cache;
     this.#cleanupTimeoutMs = cleanupTimeoutMs ?? 30_000;
@@ -792,10 +796,20 @@ export class DurableAgent<
    * Set the Mastra instance.
    * Called by the durable agent registration path in addAgent().
    * Only sets this.#mastra — the underlying agent is registered separately.
+   *
+   * Also wires mastra.pubsub as the inner pubsub (if the user didn't provide
+   * a custom one), so that the OBSERVE_AGENT_STREAM_ROUTE handler can subscribe
+   * to the same PubSub instance that this agent publishes to.
    * @internal
    */
   __setMastra(mastra: Mastra): void {
     this.#mastra = mastra;
+
+    // Wire mastra.pubsub as the inner pubsub if user didn't provide a custom one.
+    // This must happen before CachingPubSub initialization.
+    if (!this.#hasCustomPubsub && !this.#cachingPubsub) {
+      this.#innerPubsub = mastra.pubsub;
+    }
   }
 
   /**

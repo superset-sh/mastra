@@ -330,10 +330,10 @@ export class InngestWorkflow<
         // Final step to invoke lifecycle callbacks and end workflow span.
         // This step is memoized by step.run.
         await step.run(`workflow.${this.id}.finalize`, async () => {
-          // For agent workflows (identified by agentId in input), emit error event on failure
-          // This allows the client's stream to receive the error and close properly
-          // Use inputData.runId (the agent's run ID) not the workflow's runId for agent streams
-          if (result.status === 'failed' && inputData?.agentId && inputData?.runId) {
+          // For durable agent workflows, emit error event on failure so the
+          // client's stream can receive the error and close properly.
+          // Use inputData.runId (the agent's run ID) not the workflow's runId for agent streams.
+          if (result.status === 'failed' && inputData?.__workflowKind === 'durable-agent' && inputData?.runId) {
             const error = result.error instanceof Error ? result.error : new Error(String(result.error));
             try {
               await emitErrorEvent(pubsub, inputData.runId, error);

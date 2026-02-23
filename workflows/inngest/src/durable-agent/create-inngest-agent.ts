@@ -158,6 +158,10 @@ export interface InngestAgentStreamResult<OUTPUT = undefined> {
  * This interface represents an agent that uses Inngest's durable execution engine.
  * It can be registered with Mastra like a regular Agent, and the required workflow
  * is automatically registered.
+ *
+ * At runtime, a Proxy forwards all Agent method calls (e.g., `generate()`, `listTools()`,
+ * `getMemory()`) to the underlying agent. The index signature below reflects this:
+ * any property not explicitly declared here is available via the Proxy.
  */
 export interface InngestAgent<TOutput = undefined> {
   /** Agent ID */
@@ -170,6 +174,13 @@ export interface InngestAgent<TOutput = undefined> {
   readonly inngest: Inngest;
   /** The cache instance if resumable streams are enabled */
   readonly cache?: MastraServerCache;
+
+  /**
+   * The PubSub instance used for streaming events.
+   * Returns the CachingPubSub wrapper if caching is enabled.
+   * @internal Used by the server's observe endpoint to subscribe to the correct PubSub instance.
+   */
+  readonly pubsub: PubSub;
 
   /**
    * Stream a response using Inngest's durable execution.
@@ -242,6 +253,62 @@ export interface InngestAgent<TOutput = undefined> {
    * @internal
    */
   __setMastra(mastra: Mastra): void;
+
+  // ---------------------------------------------------------------------------
+  // Agent methods forwarded via Proxy to the underlying Agent at runtime.
+  // Declared here so TypeScript can see them without the Proxy indirection.
+  // ---------------------------------------------------------------------------
+
+  /** Generate a non-streaming response. Forwarded to the underlying Agent. */
+  generate(messages: MessageListInput, options?: AgentExecutionOptions<any>): Promise<any>;
+  /** Get the agent's description. Forwarded to the underlying Agent. */
+  getDescription(): string;
+  /** Get the agent's instructions. Forwarded to the underlying Agent. */
+  getInstructions(...args: any[]): any;
+  /** List tools available to the agent. Forwarded to the underlying Agent. */
+  listTools(...args: any[]): any;
+  /** Get the agent's LLM configuration. Forwarded to the underlying Agent. */
+  getLLM(...args: any[]): any;
+  /** Get the agent's model. Forwarded to the underlying Agent. */
+  getModel(...args: any[]): any;
+  /** Get the agent's memory instance. Forwarded to the underlying Agent. */
+  getMemory(...args: any[]): any;
+  /** Check if agent has its own memory. Forwarded to the underlying Agent. */
+  hasOwnMemory(): boolean;
+  /** Get the agent's workspace. Forwarded to the underlying Agent. */
+  getWorkspace(...args: any[]): any;
+  /** List sub-agents. Forwarded to the underlying Agent. */
+  listAgents(...args: any[]): any;
+  /** List workflows. Forwarded to the underlying Agent. */
+  listWorkflows(...args: any[]): any;
+  /** Get default execution options. Forwarded to the underlying Agent. */
+  getDefaultOptions(...args: any[]): any;
+  /** Get legacy generate options. Forwarded to the underlying Agent. */
+  getDefaultGenerateOptionsLegacy(...args: any[]): any;
+  /** Get legacy stream options. Forwarded to the underlying Agent. */
+  getDefaultStreamOptionsLegacy(...args: any[]): any;
+  /** Get available models. Forwarded to the underlying Agent. */
+  getModelList(...args: any[]): any;
+  /** Get configured processor workflows. Forwarded to the underlying Agent. */
+  getConfiguredProcessorWorkflows(...args: any[]): any;
+  /** Get raw agent configuration. Forwarded to the underlying Agent. */
+  toRawConfig(...args: any[]): any;
+  /** Resume a streaming execution. Forwarded to the underlying Agent. */
+  resumeStream(...args: any[]): any;
+  /** Resume a generate execution. Forwarded to the underlying Agent. */
+  resumeGenerate(...args: any[]): any;
+  /** Approve a pending tool call. Forwarded to the underlying Agent. */
+  approveToolCall(...args: any[]): any;
+  /** @internal Update the agent's model. Forwarded to the underlying Agent. */
+  __updateModel(...args: any[]): any;
+  /** @internal Reset to original model. Forwarded to the underlying Agent. */
+  __resetToOriginalModel(...args: any[]): any;
+  /** @internal Set logger. Forwarded to the underlying Agent. */
+  __setLogger(...args: any[]): any;
+  /** @internal Register primitives. Forwarded to the underlying Agent. */
+  __registerPrimitives(...args: any[]): any;
+  /** @internal Register Mastra instance. Forwarded to the underlying Agent. */
+  __registerMastra(...args: any[]): any;
 }
 
 // =============================================================================
@@ -300,7 +367,7 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
 
   // Set up pubsub with lazy CachingPubSub creation
   // CachingPubSub is an internal implementation detail - users just configure cache and pubsub separately
-  const innerPubsub = customPubsub ?? new InngestPubSub(inngest, InngestDurableStepIds.AGENTIC_LOOP);
+  let innerPubsub: PubSub = customPubsub ?? new InngestPubSub(inngest, InngestDurableStepIds.AGENTIC_LOOP);
   let _cachingPubsub: PubSub | null = null;
 
   // Lazily create CachingPubSub - this allows inheriting cache from mastra if not provided
@@ -354,8 +421,22 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
     await emitErrorEvent(getPubsub(), runId, error);
   }
 
-  // Return the InngestAgent object
-  const inngestAgent: InngestAgent<TOutput> = {
+  // Return the InngestAgent object (Agent methods are added by the Proxy below)
+  const inngestAgent: Pick<
+    InngestAgent<TOutput>,
+    | 'id'
+    | 'name'
+    | 'agent'
+    | 'inngest'
+    | 'cache'
+    | 'pubsub'
+    | 'stream'
+    | 'resume'
+    | 'prepare'
+    | 'observe'
+    | 'getDurableWorkflows'
+    | '__setMastra'
+  > = {
     get id() {
       return agentId;
     },
@@ -374,6 +455,10 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
 
     get cache() {
       return getCache();
+    },
+
+    get pubsub() {
+      return getPubsub();
     },
 
     async stream(messages, streamOptions): Promise<InngestAgentStreamResult<TOutput>> {
@@ -604,6 +689,13 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
 
     __setMastra(mastraInstance: Mastra) {
       mastra = mastraInstance;
+
+      // Wire mastra.pubsub as the inner pubsub if user didn't provide a custom one.
+      // This must happen before CachingPubSub initialization so the
+      // OBSERVE_AGENT_STREAM_ROUTE handler can subscribe to the same instance.
+      if (!customPubsub && !_cachingPubsub) {
+        innerPubsub = mastraInstance.pubsub;
+      }
     },
   };
 

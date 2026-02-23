@@ -209,6 +209,7 @@ export function createWorkflowInput(params: {
   messageId: string;
 }): DurableAgenticWorkflowInput {
   return {
+    __workflowKind: 'durable-agent',
     runId: params.runId,
     agentId: params.agentId,
     agentName: params.agentName,

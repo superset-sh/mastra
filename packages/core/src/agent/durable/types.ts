@@ -135,6 +135,8 @@ export interface SerializableDurableOptions {
  * This is fully serializable and flows through workflow state
  */
 export interface DurableAgenticWorkflowInput {
+  /** Discriminator field to identify durable agent workflows */
+  __workflowKind: 'durable-agent';
   /** Unique identifier for this execution run */
   runId: string;
   /** Agent identifier */

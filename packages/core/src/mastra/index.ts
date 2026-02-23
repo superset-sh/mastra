@@ -898,7 +898,9 @@ export class Mastra<
       });
 
       // Store the durable wrapper in #agents (not the underlying agent)
-      // This ensures getAgentById returns the wrapper so .stream() uses durable execution
+      // This ensures getAgentById returns the wrapper so .stream() uses durable execution.
+      // The cast is safe because DurableAgent extends Agent directly, and InngestAgent uses
+      // a Proxy that forwards all Agent method calls to the underlying agent.
       agents[agentKey] = durableAgent as unknown as Agent<any>;
 
       // Register durable workflows if the wrapper provides them

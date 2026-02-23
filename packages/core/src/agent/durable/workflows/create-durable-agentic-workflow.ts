@@ -43,6 +43,7 @@ export interface DurableAgenticWorkflowOptions {
  * Extends base schema with model list for fallback support.
  */
 const durableAgenticInputSchema = z.object({
+  __workflowKind: z.literal('durable-agent'),
   runId: z.string(),
   agentId: z.string(),
   agentName: z.string().optional(),
