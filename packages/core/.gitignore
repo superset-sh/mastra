@@ -9,3 +9,4 @@ dist/
 ./vector/
 ./telemetry/
 ./storage/
+.test-tmp/

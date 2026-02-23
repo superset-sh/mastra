@@ -120,3 +120,15 @@ export { LocalSkillSource } from './skills';
 // Versioned Skill Sources
 export { VersionedSkillSource } from './skills';
 export { CompositeVersionedSkillSource, type VersionedSkillEntry } from './skills';
+
+// Workflow File Management & Compilation
+export { WorkflowFileManager, type WorkflowFileManagerOptions, type WorkflowFile } from './workflows';
+export { WorkflowCompiler, type WorkflowCompilerOptions, type CompileResult, type EsbuildLike } from './workflows';
+export {
+  collectWorkflowForPublish,
+  publishWorkflow,
+  restoreWorkflow,
+  type WorkflowPublishResult,
+  type WorkflowVersionTree,
+  type WorkflowVersionTreeEntry,
+} from './workflows';
