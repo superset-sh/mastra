@@ -4,7 +4,15 @@ import { Workspace } from '../../workspace';
 import { executeCommandTool, executeCommandWithBackgroundTool } from '../execute-command';
 import { getProcessOutputTool } from '../get-process-output';
 import { killProcessTool } from '../kill-process';
-import { applyTail, applyCharLimit, truncateOutput, MAX_OUTPUT_CHARS, DEFAULT_TAIL_LINES } from '../output-helpers';
+import {
+  applyTail,
+  applyCharLimit,
+  truncateOutput,
+  stripAnsi,
+  sandboxToModelOutput,
+  MAX_OUTPUT_CHARS,
+  DEFAULT_TAIL_LINES,
+} from '../output-helpers';
 
 // ---------------------------------------------------------------------------
 // Mock Helpers
@@ -641,6 +649,53 @@ describe('output-helpers', () => {
       expect(result).not.toContain('[output truncated');
       expect(result).toContain('[showing last 5 of 500 lines]');
     });
+  });
+});
+
+describe('stripAnsi', () => {
+  it('strips basic color codes', () => {
+    expect(stripAnsi('\x1b[31mred\x1b[0m')).toBe('red');
+    expect(stripAnsi('\x1b[32mgreen\x1b[0m text')).toBe('green text');
+  });
+
+  it('strips multiple color codes', () => {
+    expect(stripAnsi('\x1b[1m\x1b[31mERROR\x1b[0m: \x1b[33mwarning\x1b[0m')).toBe('ERROR: warning');
+  });
+
+  it('strips 256-color and RGB codes', () => {
+    expect(stripAnsi('\x1b[38;5;196mred\x1b[0m')).toBe('red');
+    expect(stripAnsi('\x1b[38;2;255;0;0mred\x1b[0m')).toBe('red');
+  });
+
+  it('strips cursor movement codes', () => {
+    expect(stripAnsi('\x1b[2Kline cleared')).toBe('line cleared');
+  });
+
+  it('strips OSC hyperlink sequences', () => {
+    expect(stripAnsi('\x1b]8;;https://example.com\x07link\x1b]8;;\x07')).toBe('link');
+  });
+
+  it('returns plain text unchanged', () => {
+    expect(stripAnsi('no ansi here')).toBe('no ansi here');
+    expect(stripAnsi('')).toBe('');
+  });
+});
+
+describe('sandboxToModelOutput', () => {
+  it('returns { type: "text", value } with ANSI stripped for strings', () => {
+    expect(sandboxToModelOutput('\x1b[32mok\x1b[0m')).toEqual({ type: 'text', value: 'ok' });
+  });
+
+  it('returns plain string as { type: "text", value }', () => {
+    expect(sandboxToModelOutput('hello')).toEqual({ type: 'text', value: 'hello' });
+  });
+
+  it('passes non-string values through unchanged', () => {
+    const obj = { foo: 'bar' };
+    expect(sandboxToModelOutput(obj)).toBe(obj);
+    expect(sandboxToModelOutput(42)).toBe(42);
+    expect(sandboxToModelOutput(null)).toBe(null);
+    expect(sandboxToModelOutput(undefined)).toBe(undefined);
   });
 });
 
