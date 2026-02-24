@@ -143,9 +143,7 @@ function PhaseSelection({ providerId, availablePhases }: { providerId: string; a
                 onCheckedChange={checked => handlePhaseToggle(phase, checked)}
               />
             )}
-            {readOnly && (
-              <span className="text-xs text-neutral3">{enabledPhases.includes(phase) ? 'On' : 'Off'}</span>
-            )}
+            {readOnly && <span className="text-xs text-neutral3">{enabledPhases.includes(phase) ? 'On' : 'Off'}</span>}
           </div>
         ))}
       </div>
@@ -153,13 +151,7 @@ function PhaseSelection({ providerId, availablePhases }: { providerId: string; a
   );
 }
 
-function ConfigFields({
-  providerId,
-  configSchema,
-}: {
-  providerId: string;
-  configSchema: Record<string, unknown>;
-}) {
+function ConfigFields({ providerId, configSchema }: { providerId: string; configSchema: Record<string, unknown> }) {
   const { form, readOnly } = useAgentEditFormContext();
   const { control } = form;
 
