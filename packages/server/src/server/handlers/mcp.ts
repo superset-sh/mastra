@@ -92,6 +92,7 @@ export const LIST_MCP_SERVERS_ROUTE = createRoute({
     const serverInfoList: ServerInfo[] = paginatedServers.map(server => server.getServerInfo());
 
     // Merge stored (CMS-created) MCP servers
+    let storedServersAddedCount = 0;
     try {
       const editor = mastra.getEditor();
       const storedResult = await editor?.mcpServer.listResolved();
@@ -99,6 +100,7 @@ export const LIST_MCP_SERVERS_ROUTE = createRoute({
         const existingIds = new Set(serverInfoList.map(s => s.id));
         for (const stored of storedResult.mcpServers) {
           if (!existingIds.has(stored.id)) {
+            storedServersAddedCount++;
             serverInfoList.push({
               id: stored.id,
               name: stored.name,
@@ -117,7 +119,7 @@ export const LIST_MCP_SERVERS_ROUTE = createRoute({
 
     return {
       servers: serverInfoList,
-      total_count: serverInfoList.length,
+      total_count: totalCount + storedServersAddedCount,
       next: nextUrl,
     };
   },
