@@ -428,12 +428,9 @@ export class LocalSandbox extends MastraSandbox {
         this.mounts.set(mountPath, { filesystem, state: 'error', config, error });
         return { success: false, mountPath, error };
       }
-    } catch (err: unknown) {
-      if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
-        // Directory doesn't exist yet — will create it below
-      } else if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code !== 'ENOTDIR') {
-        // Some other error (not ENOENT, not ENOTDIR) — proceed anyway
-      }
+    } catch {
+      // ENOENT: dir doesn't exist yet (mkdir below creates it)
+      // ENOTDIR / other: proceed; mkdir will surface the real error
     }
 
     // Create mount directory under working directory
@@ -543,9 +540,11 @@ export class LocalSandbox extends MastraSandbox {
     this.logger.debug(`[LocalSandbox] Unmounting ${mountPath} (${hostPath})...`);
 
     // Only call FUSE unmount for actual FUSE mounts (not symlinks)
+    let isSymlink = false;
     try {
       const stats = await fs.lstat(hostPath);
-      if (!stats.isSymbolicLink()) {
+      isSymlink = stats.isSymbolicLink();
+      if (!isSymlink) {
         const mountCtx = this.createMountContext();
         await unmountFuse(hostPath, mountCtx);
       }
@@ -567,8 +566,7 @@ export class LocalSandbox extends MastraSandbox {
 
     // Remove mount point (symlink or empty directory)
     try {
-      const stats = await fs.lstat(hostPath);
-      if (stats.isSymbolicLink()) {
+      if (isSymlink) {
         await fs.unlink(hostPath);
       } else {
         await fs.rmdir(hostPath);
@@ -597,6 +595,7 @@ export class LocalSandbox extends MastraSandbox {
       const proc = childProcess.spawn(command, args, {
         cwd: this.workingDirectory,
         env: this.buildEnv(),
+        stdio: 'pipe',
       });
 
       let stdout = '';
