@@ -1,30 +1,9 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetStorage } from '../../../__utils__/reset-storage';
+import { uniqueServerName, createMCPServerViaAPI, getToolSwitch } from '../__utils__/helpers';
 
 const PORT = process.env.E2E_PORT || '4111';
 const BASE_URL = `http://localhost:${PORT}`;
-
-function uniqueServerName(prefix = 'Test Server') {
-  return `${prefix} ${Date.now().toString(36)}`;
-}
-
-async function createMCPServerViaAPI(params: {
-  name: string;
-  version: string;
-  tools?: Record<string, { description?: string }>;
-}): Promise<{ id: string; name: string; version: string }> {
-  const res = await fetch(`${BASE_URL}/api/stored/mcp-servers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to create MCP server: ${res.statusText}`);
-  }
-
-  return res.json();
-}
 
 async function navigateToServerDetail(page: Page, serverName: string) {
   await page.goto('/mcps');
@@ -208,11 +187,7 @@ test.describe('Edit UI Flow', () => {
     // ASSERT: Wait for tools to load in the dialog and verify weatherInfo switch is checked
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const weatherSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await expect(weatherSwitch).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
+    await expect(getToolSwitch(dialog, 'weatherInfo')).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
   });
 
   test('adding a tool via edit persists in draft', async ({ page }) => {
@@ -230,11 +205,7 @@ test.describe('Edit UI Flow', () => {
 
     let dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const simpleMcpSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-    await simpleMcpSwitch.click();
+    await getToolSwitch(dialog, 'simpleMcpTool').click();
 
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
@@ -244,16 +215,8 @@ test.describe('Edit UI Flow', () => {
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
 
-    const weatherSwitchAfter = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    const simpleSwitchAfter = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-    await expect(weatherSwitchAfter).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
-    await expect(simpleSwitchAfter).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
+    await expect(getToolSwitch(dialog, 'weatherInfo')).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
+    await expect(getToolSwitch(dialog, 'simpleMcpTool')).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
   });
 
   test('removing a tool via edit persists in draft', async ({ page }) => {
@@ -274,11 +237,7 @@ test.describe('Edit UI Flow', () => {
 
     let dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const weatherSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await weatherSwitch.click();
+    await getToolSwitch(dialog, 'weatherInfo').click();
 
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
@@ -288,16 +247,8 @@ test.describe('Edit UI Flow', () => {
     dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
 
-    const weatherSwitchAfter = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    const simpleSwitchAfter = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-    await expect(weatherSwitchAfter).toHaveAttribute('data-state', 'unchecked', { timeout: 5000 });
-    await expect(simpleSwitchAfter).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
+    await expect(getToolSwitch(dialog, 'weatherInfo')).toHaveAttribute('data-state', 'unchecked', { timeout: 5000 });
+    await expect(getToolSwitch(dialog, 'simpleMcpTool')).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
   });
 
   test('adding a tool via edit updates the sidebar', async ({ page }) => {
@@ -319,11 +270,7 @@ test.describe('Edit UI Flow', () => {
     await openEditDialog(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const simpleMcpSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-    await simpleMcpSwitch.click();
+    await getToolSwitch(dialog, 'simpleMcpTool').click();
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
 
@@ -354,11 +301,7 @@ test.describe('Edit UI Flow', () => {
     await openEditDialog(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const weatherSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await weatherSwitch.click();
+    await getToolSwitch(dialog, 'weatherInfo').click();
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
 
@@ -382,11 +325,7 @@ test.describe('Edit UI Flow', () => {
     await openEditDialog(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
-    const simpleMcpSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-    await simpleMcpSwitch.click();
+    await getToolSwitch(dialog, 'simpleMcpTool').click();
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
 
@@ -419,17 +358,8 @@ test.describe('Edit UI Flow', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
 
-    const weatherSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    const simpleMcpSwitch = dialog
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'simpleMcpTool' })
-      .getByRole('switch');
-
-    await weatherSwitch.click(); // remove weatherInfo
-    await simpleMcpSwitch.click(); // add simpleMcpTool
+    await getToolSwitch(dialog, 'weatherInfo').click(); // remove weatherInfo
+    await getToolSwitch(dialog, 'simpleMcpTool').click(); // add simpleMcpTool
 
     await page.getByRole('button', { name: 'Update' }).click();
     await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });

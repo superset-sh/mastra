@@ -1,3 +1,4 @@
+import type { Mastra } from '@mastra/core';
 import type { MCPServerBase as MastraMCPServerImplementation, ServerInfo } from '@mastra/core/mcp';
 import { HTTPException } from '../http-exception';
 import {
@@ -15,6 +16,31 @@ import {
 } from '../schemas/mcp';
 import type { ServerContext } from '../server-adapter';
 import { createRoute } from '../server-adapter/routes/route-builder';
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+async function resolveServerWithSource(
+  mastra: Mastra,
+  serverId: string,
+): Promise<{
+  server: MastraMCPServerImplementation;
+  storedServer: MastraMCPServerImplementation | undefined;
+}> {
+  const inMemory = mastra.getMCPServerById(serverId);
+  let stored: MastraMCPServerImplementation | undefined;
+  try {
+    stored = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
+  } catch {
+    /* editor not configured */
+  }
+  const server = inMemory ?? stored;
+  if (!server) {
+    throw new HTTPException(404, { message: `MCP server with ID '${serverId}' not found` });
+  }
+  return { server, storedServer: stored };
+}
 
 // ============================================================================
 // Route Definitions (createRoute pattern for server adapters)
@@ -172,31 +198,8 @@ export const GET_MCP_SERVER_DETAIL_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(id);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(id)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server with ID '${id}' not found` });
-    }
-
-    // Determine source: stored servers are hydrated into the Mastra instance,
-    // so we need to check the editor to know if this server is stored.
-    let serverSource: 'code' | 'stored' = 'code';
-    let storedServer: MastraMCPServerImplementation | undefined;
-    try {
-      storedServer = (await mastra.getEditor()?.mcpServer.getById(id)) ?? undefined;
-      if (storedServer) serverSource = 'stored';
-    } catch {
-      // editor not configured
-    }
+    const { server, storedServer } = await resolveServerWithSource(mastra, id);
+    const serverSource: 'code' | 'stored' = storedServer ? 'stored' : 'code';
 
     // For stored servers, prefer the fresh instance from storage over the
     // potentially stale in-memory Mastra instance
@@ -228,32 +231,10 @@ export const LIST_MCP_SERVER_TOOLS_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(serverId);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server with ID '${serverId}' not found` });
-    }
+    const { server, storedServer } = await resolveServerWithSource(mastra, serverId);
 
     if (typeof server.getToolListInfo !== 'function') {
       throw new HTTPException(501, { message: `Server '${serverId}' cannot list tools in this way.` });
-    }
-
-    // For stored servers, prefer the fresh instance from storage over the
-    // potentially stale in-memory Mastra instance
-    let storedServer: MastraMCPServerImplementation | undefined;
-    try {
-      storedServer = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-    } catch {
-      // editor not configured
     }
 
     return (storedServer ?? server).getToolListInfo();
@@ -275,32 +256,10 @@ export const GET_MCP_SERVER_TOOL_DETAIL_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(serverId);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server with ID '${serverId}' not found` });
-    }
+    const { server, storedServer } = await resolveServerWithSource(mastra, serverId);
 
     if (typeof server.getToolInfo !== 'function') {
       throw new HTTPException(501, { message: `Server '${serverId}' cannot provide tool details in this way.` });
-    }
-
-    // For stored servers, prefer the fresh instance from storage over the
-    // potentially stale in-memory Mastra instance
-    let storedServer: MastraMCPServerImplementation | undefined;
-    try {
-      storedServer = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-    } catch {
-      // editor not configured
     }
 
     const effectiveServer = storedServer ?? server;
@@ -334,20 +293,7 @@ export const EXECUTE_MCP_SERVER_TOOL_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(serverId);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server with ID '${serverId}' not found` });
-    }
+    const { server } = await resolveServerWithSource(mastra, serverId);
 
     if (typeof server.executeTool !== 'function') {
       throw new HTTPException(501, { message: `Server '${serverId}' cannot execute tools in this way.` });
@@ -418,20 +364,7 @@ export const MCP_HTTP_TRANSPORT_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(serverId);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server '${serverId}' not found` });
-    }
+    const { server } = await resolveServerWithSource(mastra, serverId);
 
     return {
       server,
@@ -454,20 +387,7 @@ export const MCP_SSE_TRANSPORT_ROUTE = createRoute({
       throw new HTTPException(500, { message: 'Mastra instance or getMCPServerById method not available' });
     }
 
-    let server = mastra.getMCPServerById(serverId);
-
-    // Fall back to stored (CMS) server
-    if (!server) {
-      try {
-        server = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
-      } catch {
-        // editor not configured
-      }
-    }
-
-    if (!server) {
-      throw new HTTPException(404, { message: `MCP server '${serverId}' not found` });
-    }
+    const { server } = await resolveServerWithSource(mastra, serverId);
 
     return {
       server,

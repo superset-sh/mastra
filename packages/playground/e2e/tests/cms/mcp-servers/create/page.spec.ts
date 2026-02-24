@@ -1,23 +1,6 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { resetStorage } from '../../../__utils__/reset-storage';
-
-function uniqueServerName(prefix = 'Test Server') {
-  return `${prefix} ${Date.now().toString(36)}`;
-}
-
-async function fillMCPServerFields(page: Page, options: { name?: string; version?: string }) {
-  if (options.name !== undefined) {
-    const nameInput = page.locator('#mcp-server-name');
-    await nameInput.clear();
-    await nameInput.fill(options.name);
-  }
-
-  if (options.version !== undefined) {
-    const versionInput = page.locator('#mcp-server-version');
-    await versionInput.clear();
-    await versionInput.fill(options.version);
-  }
-}
+import { uniqueServerName, fillMCPServerFields, getToolSwitch } from '../__utils__/helpers';
 
 async function openCreateDialog(page: Page) {
   await page.goto('/mcps');
@@ -95,11 +78,7 @@ test.describe('Creation with Tools', () => {
     // Wait for tools to load and toggle weatherInfo
     await expect(page.getByText('Available Tools')).toBeVisible({ timeout: 10000 });
 
-    const weatherSwitch = page
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await weatherSwitch.click();
+    await getToolSwitch(page, 'weatherInfo').click();
 
     await page.getByRole('button', { name: 'Create' }).click();
 
@@ -163,11 +142,7 @@ test.describe('Create → List → Detail Flow', () => {
 
     // Wait for tools to load and toggle weatherInfo
     await expect(page.getByText('Available Tools')).toBeVisible({ timeout: 10000 });
-    const weatherSwitch = page
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await weatherSwitch.click();
+    await getToolSwitch(page, 'weatherInfo').click();
 
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText('MCP server created successfully')).toBeVisible({ timeout: 10000 });
@@ -206,11 +181,7 @@ test.describe('Create → List → Detail Flow', () => {
 
     // Wait for tools to load and toggle weatherInfo
     await expect(page.getByText('Available Tools')).toBeVisible({ timeout: 10000 });
-    const weatherSwitch = page
-      .locator('div:has(> [role="switch"])')
-      .filter({ hasText: 'weatherInfo' })
-      .getByRole('switch');
-    await weatherSwitch.click();
+    await getToolSwitch(page, 'weatherInfo').click();
 
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText('MCP server created successfully')).toBeVisible({ timeout: 10000 });

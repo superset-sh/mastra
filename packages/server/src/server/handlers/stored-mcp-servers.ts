@@ -1,3 +1,4 @@
+import type { Mastra } from '@mastra/core';
 import { HTTPException } from '../http-exception';
 import {
   storedMCPServerIdPathParams,
@@ -19,6 +20,22 @@ import { handleAutoVersioning, MCP_SERVER_SNAPSHOT_CONFIG_FIELDS } from './versi
 import type { VersionedStoreInterface } from './version-helpers';
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+async function getMcpServerStore(mastra: Mastra) {
+  const storage = mastra.getStorage();
+  if (!storage) {
+    throw new HTTPException(500, { message: 'Storage is not configured' });
+  }
+  const mcpServerStore = await storage.getStore('mcpServers');
+  if (!mcpServerStore) {
+    throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
+  }
+  return mcpServerStore;
+}
+
+// ============================================================================
 // Route Definitions
 // ============================================================================
 
@@ -37,16 +54,7 @@ export const LIST_STORED_MCP_SERVERS_ROUTE = createRoute({
   requiresAuth: true,
   handler: async ({ mastra, page, perPage, orderBy, status, authorId, metadata }) => {
     try {
-      const storage = mastra.getStorage();
-
-      if (!storage) {
-        throw new HTTPException(500, { message: 'Storage is not configured' });
-      }
-
-      const mcpServerStore = await storage.getStore('mcpServers');
-      if (!mcpServerStore) {
-        throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
-      }
+      const mcpServerStore = await getMcpServerStore(mastra);
 
       const result = await mcpServerStore.listResolved({
         page,
@@ -81,16 +89,7 @@ export const GET_STORED_MCP_SERVER_ROUTE = createRoute({
   requiresAuth: true,
   handler: async ({ mastra, storedMCPServerId, status }) => {
     try {
-      const storage = mastra.getStorage();
-
-      if (!storage) {
-        throw new HTTPException(500, { message: 'Storage is not configured' });
-      }
-
-      const mcpServerStore = await storage.getStore('mcpServers');
-      if (!mcpServerStore) {
-        throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
-      }
+      const mcpServerStore = await getMcpServerStore(mastra);
 
       const mcpServer = await mcpServerStore.getByIdResolved(storedMCPServerId, { status });
 
@@ -120,16 +119,7 @@ export const CREATE_STORED_MCP_SERVER_ROUTE = createRoute({
   requiresAuth: true,
   handler: async ({ mastra, id: providedId, authorId, metadata, name, version, tools }) => {
     try {
-      const storage = mastra.getStorage();
-
-      if (!storage) {
-        throw new HTTPException(500, { message: 'Storage is not configured' });
-      }
-
-      const mcpServerStore = await storage.getStore('mcpServers');
-      if (!mcpServerStore) {
-        throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
-      }
+      const mcpServerStore = await getMcpServerStore(mastra);
 
       // Derive ID from name if not explicitly provided
       const id = providedId || toSlug(name);
@@ -197,16 +187,7 @@ export const UPDATE_STORED_MCP_SERVER_ROUTE = createRoute({
     tools,
   }) => {
     try {
-      const storage = mastra.getStorage();
-
-      if (!storage) {
-        throw new HTTPException(500, { message: 'Storage is not configured' });
-      }
-
-      const mcpServerStore = await storage.getStore('mcpServers');
-      if (!mcpServerStore) {
-        throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
-      }
+      const mcpServerStore = await getMcpServerStore(mastra);
 
       // Check if MCP server exists
       const existing = await mcpServerStore.getById(storedMCPServerId);
@@ -277,16 +258,7 @@ export const DELETE_STORED_MCP_SERVER_ROUTE = createRoute({
   requiresAuth: true,
   handler: async ({ mastra, storedMCPServerId }) => {
     try {
-      const storage = mastra.getStorage();
-
-      if (!storage) {
-        throw new HTTPException(500, { message: 'Storage is not configured' });
-      }
-
-      const mcpServerStore = await storage.getStore('mcpServers');
-      if (!mcpServerStore) {
-        throw new HTTPException(500, { message: 'MCP servers storage domain is not available' });
-      }
+      const mcpServerStore = await getMcpServerStore(mastra);
 
       // Check if MCP server exists
       const existing = await mcpServerStore.getById(storedMCPServerId);

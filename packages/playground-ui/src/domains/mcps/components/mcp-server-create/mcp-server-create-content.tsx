@@ -75,42 +75,25 @@ export function MCPServerCreateContent({ editServerId, onClose }: MCPServerCreat
     }
 
     const values = form.getValues();
+    const mutation = isEdit && editServerId ? updateStoredMCPServer : createStoredMCPServer;
+    const action = isEdit && editServerId ? 'updated' : 'created';
 
-    if (isEdit && editServerId) {
-      updateStoredMCPServer.mutate(
-        {
-          name: values.name,
-          version: values.version,
-          tools: selectedTools,
+    mutation.mutate(
+      {
+        name: values.name,
+        version: values.version,
+        tools: selectedTools,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`MCP server ${action} successfully`);
+          onClose();
         },
-        {
-          onSuccess: () => {
-            toast.success('MCP server updated successfully');
-            onClose();
-          },
-          onError: () => {
-            toast.error('Failed to update MCP server');
-          },
+        onError: () => {
+          toast.error(`Failed to ${action.slice(0, -1)} MCP server`);
         },
-      );
-    } else {
-      createStoredMCPServer.mutate(
-        {
-          name: values.name,
-          version: values.version,
-          tools: selectedTools,
-        },
-        {
-          onSuccess: () => {
-            toast.success('MCP server created successfully');
-            onClose();
-          },
-          onError: () => {
-            toast.error('Failed to create MCP server');
-          },
-        },
-      );
-    }
+      },
+    );
   };
 
   const isSubmitting = createStoredMCPServer.isPending || updateStoredMCPServer.isPending;
