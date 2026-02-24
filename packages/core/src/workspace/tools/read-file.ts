@@ -3,6 +3,7 @@ import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { extractLinesWithLimit, formatWithLineNumbers } from '../line-utils';
 import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
+import { applyCharLimit } from './output-helpers';
 
 export const readFileTool = createTool({
   id: WORKSPACE_TOOLS.FILESYSTEM.READ_FILE,
@@ -36,11 +37,11 @@ export const readFileTool = createTool({
     const isTextEncoding = !encoding || encoding === 'utf-8' || encoding === 'utf8';
 
     if (!isTextEncoding) {
-      return `${stat.path} (${stat.size} bytes, ${effectiveEncoding})\n${fullContent}`;
+      return applyCharLimit(`${stat.path} (${stat.size} bytes, ${effectiveEncoding})\n${fullContent}`);
     }
 
     if (typeof fullContent !== 'string') {
-      return `${stat.path} (${stat.size} bytes, base64)\n${fullContent.toString('base64')}`;
+      return applyCharLimit(`${stat.path} (${stat.size} bytes, base64)\n${fullContent.toString('base64')}`);
     }
 
     const hasLineRange = offset !== undefined || limit !== undefined;
@@ -58,6 +59,6 @@ export const readFileTool = createTool({
       header = `${stat.path} (${stat.size} bytes)`;
     }
 
-    return `${header}\n${formattedContent}`;
+    return applyCharLimit(`${header}\n${formattedContent}`);
   },
 });
