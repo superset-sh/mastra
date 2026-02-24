@@ -221,8 +221,10 @@ export class MCPServersLibSQL extends MCPServersStorage {
       const conditions: string[] = [];
       const queryParams: InValue[] = [];
 
-      conditions.push('status = ?');
-      queryParams.push(status);
+      if (status) {
+        conditions.push('status = ?');
+        queryParams.push(status);
+      }
 
       if (authorId !== undefined) {
         conditions.push('authorId = ?');
@@ -246,7 +248,7 @@ export class MCPServersLibSQL extends MCPServersStorage {
         }
       }
 
-      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       // Get total count
       const countResult = await this.#client.execute({

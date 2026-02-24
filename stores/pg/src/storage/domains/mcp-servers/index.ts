@@ -342,8 +342,10 @@ export class MCPServersPG extends MCPServersStorage {
       const queryParams: any[] = [];
       let paramIdx = 1;
 
-      conditions.push(`status = $${paramIdx++}`);
-      queryParams.push(status);
+      if (status) {
+        conditions.push(`status = $${paramIdx++}`);
+        queryParams.push(status);
+      }
 
       if (authorId !== undefined) {
         conditions.push(`"authorId" = $${paramIdx++}`);
@@ -355,7 +357,7 @@ export class MCPServersPG extends MCPServersStorage {
         queryParams.push(JSON.stringify(metadata));
       }
 
-      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       // Get total count
       const countResult = await this.#db.client.one(

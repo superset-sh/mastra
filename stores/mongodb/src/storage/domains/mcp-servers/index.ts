@@ -341,7 +341,9 @@ export class MongoDBMCPServersStorage extends MCPServersStorage {
 
       // Build filter
       const filter: Record<string, any> = {};
-      filter.status = status;
+      if (status) {
+        filter.status = status;
+      }
       if (authorId) {
         filter.authorId = authorId;
       }
