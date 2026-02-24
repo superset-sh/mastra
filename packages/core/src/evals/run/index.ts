@@ -3,23 +3,15 @@ import type { Agent, AgentExecutionOptions, AiMessageType, UIMessageWithMetadata
 import { isSupportedLanguageModel } from '../../agent';
 import { MastraError } from '../../error';
 import { validateAndSaveScore } from '../../mastra/hooks';
-import type { TracingContext, TracingOptions } from '../../observability';
+import type { TracingContext } from '../../observability';
 import type { RequestContext } from '../../request-context';
 import { Workflow } from '../../workflows';
-import type { AnyWorkflow, WorkflowResult, StepResult } from '../../workflows';
+import type { AnyWorkflow, WorkflowResult, WorkflowRunStartOptions, StepResult } from '../../workflows';
 import type { MastraScorer } from '../base';
 import { ScoreAccumulator } from './scorerAccumulator';
 
-type WorkflowRunOptions = {
+type WorkflowRunOptions = WorkflowRunStartOptions & {
   initialState?: any;
-  outputWriter?: any;
-  tracingContext?: TracingContext;
-  tracingOptions?: TracingOptions;
-  outputOptions?: {
-    includeState?: boolean;
-    includeResumeLabels?: boolean;
-  };
-  perStep?: boolean;
 };
 
 type RunEvalsDataItem<TTarget = unknown> = {
@@ -94,7 +86,9 @@ export async function runEvals(config: {
   data: RunEvalsDataItem<any>[];
   scorers: MastraScorer<any, any, any, any>[] | WorkflowScorerConfig;
   target: Agent | Workflow;
-  targetOptions?: Omit<AgentExecutionOptions<any>, 'scorers' | 'returnScorerData' | 'requestContext'> | WorkflowRunOptions;
+  targetOptions?:
+    | Omit<AgentExecutionOptions<any>, 'scorers' | 'returnScorerData' | 'requestContext'>
+    | WorkflowRunOptions;
   onItemComplete?: (params: {
     item: RunEvalsDataItem<any>;
     targetResult: any;
@@ -223,7 +217,9 @@ function validateEvalsInputs(
 async function executeTarget(
   target: Agent | Workflow,
   item: RunEvalsDataItem<any>,
-  targetOptions?: Omit<AgentExecutionOptions<any>, 'scorers' | 'returnScorerData' | 'requestContext'> | WorkflowRunOptions,
+  targetOptions?:
+    | Omit<AgentExecutionOptions<any>, 'scorers' | 'returnScorerData' | 'requestContext'>
+    | WorkflowRunOptions,
 ) {
   try {
     if (isWorkflow(target)) {
