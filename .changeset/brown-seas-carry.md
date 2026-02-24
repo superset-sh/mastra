@@ -7,11 +7,12 @@ Sandbox tool results sent to the model now omit ANSI color codes while streamed 
 Commands ending with `| tail -N` now stream output live and still return only the last N lines in the final result, preventing long commands from blocking streaming.
 
 ```ts
-// Before:
-await execute_command({ command: "npm test | tail -20" });
-// Output does not stream until the command finishes.
+// ANSI stripping (automatic via toModelOutput on sandbox tools):
+// Streamed to user: "\x1b[32mSuccess\x1b[0m" (colored)
+// Sent to model:    "Success" (clean text, fewer tokens)
 
-// After:
-await execute_command({ command: "npm test | tail -20" });
-// Output streams live; final result is the last 20 lines.
+// Tail pipe extraction:
+// Agent calls: execute_command({ command: "npm test | tail -20" })
+// What actually runs: "npm test" (all output streams live to user)
+// What the model gets: last 20 lines only
 ```
