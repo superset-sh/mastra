@@ -141,6 +141,15 @@ export async function prepareForDurableExecution<OUTPUT = undefined>(
     }
   }
 
+  // Add workspace instructions (matches WorkspaceInstructionsProcessor behavior)
+  const workspace = await typedAgent.getWorkspace({ requestContext });
+  if (workspace?.filesystem || workspace?.sandbox) {
+    const wsInstructions = workspace.getInstructions({ requestContext });
+    if (wsInstructions) {
+      messageList.addSystem({ role: 'system', content: wsInstructions });
+    }
+  }
+
   // Add context messages if provided
   if (execOptions?.context) {
     messageList.add(execOptions.context, 'context');
@@ -205,8 +214,7 @@ export async function prepareForDurableExecution<OUTPUT = undefined>(
       })
     : undefined;
 
-  // 7b. Get workspace for tool execution context
-  const workspace = await typedAgent.getWorkspace({ requestContext });
+  // 7b. Workspace was already fetched above for instructions injection
 
   // 8. Create serialized workflow input
   const workflowInput = createWorkflowInput({
