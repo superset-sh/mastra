@@ -1155,6 +1155,57 @@ describe('LocalSandbox', () => {
         await fs.unlink(hostPath).catch(() => {});
       }
     });
+
+    it('should refuse to unmount a foreign FUSE mount (no marker file)', async () => {
+      const mountS3Spy = vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
+      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
+      // Simulate a real mount point that we didn't create (no marker file)
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(true);
+
+      const mountPath = '/foreign-mount';
+      const result = await mountSandbox.mount(
+        makeMockFs({
+          id: 'test-s3',
+          provider: 's3',
+          getMountConfig: () => ({ type: 's3', bucket: 'my-bucket', region: 'us-east-1' }),
+        }) as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not created by Mastra');
+      // Should NOT have called mountS3 or unmountFuse
+      expect(mountS3Spy).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to replace a foreign symlink (no marker file)', async () => {
+      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
+
+      const mountPath = '/foreign-link';
+      const hostPath = path.join(mountDir, 'foreign-link');
+      const foreignTarget = path.join(mountDir, 'foreign-target');
+      const ourBasePath = path.join(mountDir, 'our-target');
+
+      // Create a symlink that someone else made (no marker file)
+      await fs.mkdir(foreignTarget, { recursive: true });
+      await fs.symlink(foreignTarget, hostPath);
+
+      try {
+        const result = await mountSandbox.mount(
+          makeMockFs({
+            id: 'local-test',
+            provider: 'local',
+            getMountConfig: () => ({ type: 'local', basePath: ourBasePath }),
+          }) as any,
+          mountPath,
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not created by Mastra');
+      } finally {
+        await fs.unlink(hostPath).catch(() => {});
+      }
+    });
   });
 });
 
