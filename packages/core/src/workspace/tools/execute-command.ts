@@ -3,7 +3,7 @@ import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { SandboxFeatureNotSupportedError } from '../errors';
 import { emitWorkspaceMetadata, requireSandbox } from './helpers';
-import { DEFAULT_TAIL_LINES, truncateOutput } from './output-helpers';
+import { DEFAULT_TAIL_LINES, truncateOutput, sandboxToModelOutput } from './output-helpers';
 
 /**
  * Base input schema for execute_command (no background param).
@@ -33,11 +33,44 @@ export const executeCommandWithBackgroundSchema = executeCommandInputSchema.exte
     ),
 });
 
+/**
+ * Extract `| tail -N` or `| tail -n N` from the end of a command.
+ * LLMs are trained to pipe to tail for long outputs, but this prevents streaming —
+ * the user sees nothing until the command finishes. By stripping the tail pipe and
+ * applying it programmatically afterward, all output streams in real time while
+ * the final result sent to the model is still truncated.
+ *
+ * Returns the cleaned command and extracted tail line count (if any).
+ */
+function extractTailPipe(command: string): { command: string; tail?: number } {
+  const match = command.match(/\|\s*tail\s+(?:-n\s+)?(-?\d+)\s*$/);
+  if (match) {
+    const lines = Math.abs(parseInt(match[1]!, 10));
+    if (lines > 0) {
+      return {
+        command: command.replace(/\|\s*tail\s+(?:-n\s+)?-?\d+\s*$/, '').trim(),
+        tail: lines,
+      };
+    }
+  }
+  return { command };
+}
+
 /** Shared execute function used by both foreground-only and background-capable tool variants. */
 async function executeCommand(input: Record<string, any>, context: any) {
-  const { command, timeout, cwd, tail } = input;
+  let { command, timeout, cwd, tail } = input;
   const background = input.background as boolean | undefined;
   const { sandbox } = requireSandbox(context);
+
+  // Extract tail pipe from command so output can stream in real time
+  if (!background) {
+    const extracted = extractTailPipe(command);
+    command = extracted.command;
+    // Extracted tail overrides schema tail param (explicit pipe intent takes priority)
+    if (extracted.tail != null) {
+      tail = extracted.tail;
+    }
+  }
 
   await emitWorkspaceMetadata(context, WORKSPACE_TOOLS.SANDBOX.EXECUTE_COMMAND);
   const toolCallId = context?.agent?.toolCallId;
@@ -138,6 +171,7 @@ export const executeCommandTool = createTool({
   description: baseDescription,
   inputSchema: executeCommandInputSchema,
   execute: executeCommand,
+  toModelOutput: sandboxToModelOutput,
 });
 
 /** Tool with background param in schema (used when sandbox.processes exists). */
@@ -148,4 +182,5 @@ export const executeCommandWithBackgroundTool = createTool({
 Set background: true to run long-running commands (dev servers, watchers) without blocking. You'll get a PID to track the process.`,
   inputSchema: executeCommandWithBackgroundSchema,
   execute: executeCommand,
+  toModelOutput: sandboxToModelOutput,
 });
