@@ -300,6 +300,105 @@ test.describe('Edit UI Flow', () => {
     await expect(simpleSwitchAfter).toHaveAttribute('data-state', 'checked', { timeout: 5000 });
   });
 
+  test('adding a tool via edit updates the sidebar', async ({ page }) => {
+    // ARRANGE: Create server via API with one tool
+    const serverName = uniqueServerName('SidebarAdd');
+    await createMCPServerViaAPI({
+      name: serverName,
+      version: '1.0.0',
+      tools: { weatherInfo: { description: 'Get weather info' } },
+    });
+
+    // Navigate to detail page and verify sidebar shows only weatherInfo
+    await navigateToServerDetail(page, serverName);
+    const sidebar = page.locator('.border-l').filter({ hasText: 'Available Tools' });
+    await expect(sidebar.getByText('weatherInfo')).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText('simpleMcpTool')).not.toBeVisible();
+
+    // ACT: Open edit dialog, toggle simpleMcpTool ON, save
+    await openEditDialog(page);
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
+    const simpleMcpSwitch = dialog
+      .locator('div:has(> [role="switch"])')
+      .filter({ hasText: 'simpleMcpTool' })
+      .getByRole('switch');
+    await simpleMcpSwitch.click();
+    await page.getByRole('button', { name: 'Update' }).click();
+    await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
+
+    // ASSERT: Sidebar now shows both tools
+    await expect(sidebar.getByText('weatherInfo')).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText('simpleMcpTool')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('removing a tool via edit updates the sidebar', async ({ page }) => {
+    // ARRANGE: Create server via API with two tools
+    const serverName = uniqueServerName('SidebarRemove');
+    await createMCPServerViaAPI({
+      name: serverName,
+      version: '1.0.0',
+      tools: {
+        weatherInfo: { description: 'Get weather info' },
+        simpleMcpTool: { description: 'Simple tool' },
+      },
+    });
+
+    // Navigate to detail page and verify sidebar shows both tools
+    await navigateToServerDetail(page, serverName);
+    const sidebar = page.locator('.border-l').filter({ hasText: 'Available Tools' });
+    await expect(sidebar.getByText('weatherInfo')).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText('simpleMcpTool')).toBeVisible({ timeout: 10000 });
+
+    // ACT: Open edit dialog, toggle weatherInfo OFF, save
+    await openEditDialog(page);
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
+    const weatherSwitch = dialog
+      .locator('div:has(> [role="switch"])')
+      .filter({ hasText: 'weatherInfo' })
+      .getByRole('switch');
+    await weatherSwitch.click();
+    await page.getByRole('button', { name: 'Update' }).click();
+    await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
+
+    // ASSERT: Sidebar now shows only simpleMcpTool
+    await expect(sidebar.getByText('simpleMcpTool')).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText('weatherInfo')).not.toBeVisible();
+  });
+
+  test('sidebar tools persist after page reload', async ({ page }) => {
+    // ARRANGE: Create server with one tool, then add another via edit
+    const serverName = uniqueServerName('SidebarPersist');
+    await createMCPServerViaAPI({
+      name: serverName,
+      version: '1.0.0',
+      tools: { weatherInfo: { description: 'Get weather info' } },
+    });
+
+    await navigateToServerDetail(page, serverName);
+
+    // Add simpleMcpTool via edit
+    await openEditDialog(page);
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /Available Tools/ })).toBeVisible({ timeout: 10000 });
+    const simpleMcpSwitch = dialog
+      .locator('div:has(> [role="switch"])')
+      .filter({ hasText: 'simpleMcpTool' })
+      .getByRole('switch');
+    await simpleMcpSwitch.click();
+    await page.getByRole('button', { name: 'Update' }).click();
+    await expect(page.getByText('MCP server updated successfully')).toBeVisible({ timeout: 10000 });
+
+    // ACT: Reload the page
+    await page.reload();
+
+    // ASSERT: Sidebar still shows both tools after reload
+    const sidebar = page.locator('.border-l').filter({ hasText: 'Available Tools' });
+    await expect(sidebar.getByText('weatherInfo')).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText('simpleMcpTool')).toBeVisible({ timeout: 10000 });
+  });
+
   test('editing version persists in draft', async ({ page }) => {
     // ARRANGE: Create server via API
     const serverName = uniqueServerName('EditVer');

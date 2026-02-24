@@ -247,7 +247,16 @@ export const LIST_MCP_SERVER_TOOLS_ROUTE = createRoute({
       throw new HTTPException(501, { message: `Server '${serverId}' cannot list tools in this way.` });
     }
 
-    return server.getToolListInfo();
+    // For stored servers, prefer the fresh instance from storage over the
+    // potentially stale in-memory Mastra instance
+    let storedServer: MastraMCPServerImplementation | undefined;
+    try {
+      storedServer = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
+    } catch {
+      // editor not configured
+    }
+
+    return (storedServer ?? server).getToolListInfo();
   },
 });
 
@@ -285,7 +294,17 @@ export const GET_MCP_SERVER_TOOL_DETAIL_ROUTE = createRoute({
       throw new HTTPException(501, { message: `Server '${serverId}' cannot provide tool details in this way.` });
     }
 
-    const toolInfo = server.getToolInfo(toolId);
+    // For stored servers, prefer the fresh instance from storage over the
+    // potentially stale in-memory Mastra instance
+    let storedServer: MastraMCPServerImplementation | undefined;
+    try {
+      storedServer = (await mastra.getEditor()?.mcpServer.getById(serverId)) ?? undefined;
+    } catch {
+      // editor not configured
+    }
+
+    const effectiveServer = storedServer ?? server;
+    const toolInfo = effectiveServer.getToolInfo(toolId);
     if (!toolInfo) {
       throw new HTTPException(404, { message: `Tool with ID '${toolId}' not found on MCP server '${serverId}'` });
     }

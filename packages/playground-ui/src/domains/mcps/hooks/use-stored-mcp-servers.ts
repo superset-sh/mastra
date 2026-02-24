@@ -38,6 +38,7 @@ export const useStoredMCPServerMutations = (serverId?: string) => {
     queryClient.invalidateQueries({ queryKey: ['workspaces'] });
     if (serverId) {
       queryClient.invalidateQueries({ queryKey: ['stored-mcp-server', serverId] });
+      queryClient.invalidateQueries({ queryKey: ['mcpserver-tools', serverId] });
     }
   };
 
