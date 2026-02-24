@@ -754,7 +754,7 @@ export class LocalFilesystem extends MastraFilesystem {
    * Status management is handled by the base class.
    */
   async destroy(): Promise<void> {
-    // LocalFilesystem doesn't clean up files on destroy by default
+    // LocalFilesystem doesn't delete files on destroy
   }
 
   getInfo(): FilesystemInfo<{ basePath: string; contained: boolean; allowedPaths?: string[] }> {
