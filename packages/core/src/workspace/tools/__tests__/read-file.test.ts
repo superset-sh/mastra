@@ -77,4 +77,17 @@ describe('workspace_read_file', () => {
     expect(result).toContain('/binary.bin');
     expect(result).toContain('4 bytes');
   });
+
+  it('should apply hard character limit to large files', async () => {
+    // Create a file larger than MAX_OUTPUT_CHARS (30k)
+    const content = 'x'.repeat(40_000);
+    await fs.writeFile(path.join(tempDir, 'huge.txt'), content);
+    const workspace = new Workspace({ filesystem: new LocalFilesystem({ basePath: tempDir }) });
+    const tools = createWorkspaceTools(workspace);
+
+    const result = (await tools[WORKSPACE_TOOLS.FILESYSTEM.READ_FILE].execute({ path: '/huge.txt' })) as string;
+
+    expect(result).toContain('[output truncated');
+    expect(result.length).toBeLessThanOrEqual(31000);
+  });
 });

@@ -207,4 +207,26 @@ describe('workspace_list_files', () => {
     expect(result).toContain('App.tsx');
     expect(result).not.toContain('style.css');
   });
+
+  it('should apply hard character limit to large tree output', async () => {
+    // Create enough directories and files to exceed MAX_OUTPUT_CHARS (30k)
+    // Each entry contributes ~30-50 chars to tree output
+    for (let i = 0; i < 100; i++) {
+      const dir = path.join(tempDir, `dir_${String(i).padStart(3, '0')}`);
+      await fs.mkdir(dir);
+      for (let j = 0; j < 10; j++) {
+        await fs.writeFile(path.join(dir, `file_${String(j).padStart(3, '0')}_${'x'.repeat(100)}.ts`), '');
+      }
+    }
+    const workspace = new Workspace({ filesystem: new LocalFilesystem({ basePath: tempDir }) });
+    const tools = createWorkspaceTools(workspace);
+
+    const result = (await tools[WORKSPACE_TOOLS.FILESYSTEM.LIST_FILES].execute({
+      path: '/',
+      maxDepth: 5,
+    })) as string;
+
+    expect(result).toContain('[output truncated');
+    expect(result.length).toBeLessThanOrEqual(31000);
+  });
 });

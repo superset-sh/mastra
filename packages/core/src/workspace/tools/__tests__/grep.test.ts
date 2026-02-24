@@ -399,4 +399,22 @@ describe('workspace_grep', () => {
     expect(result).toContain('1000 matches across 1 file');
     expect(result).toContain('(truncated at 1000)');
   });
+
+  it('should apply hard character limit to output', async () => {
+    // Create a file with long lines that will exceed MAX_OUTPUT_CHARS (30k)
+    // 200 lines * 200 chars each = 40k+ chars
+    const lines = Array.from({ length: 200 }, (_, i) => `match_${i}_${'x'.repeat(200)}`).join('\n');
+    await fs.writeFile(path.join(tempDir, 'big.ts'), lines);
+    const workspace = new Workspace({
+      filesystem: new LocalFilesystem({ basePath: tempDir }),
+    });
+    const tools = createWorkspaceTools(workspace);
+
+    const result = (await tools[WORKSPACE_TOOLS.FILESYSTEM.GREP].execute({
+      pattern: 'match_',
+    })) as string;
+
+    expect(result).toContain('[output truncated');
+    expect(result.length).toBeLessThanOrEqual(31000); // 30k + truncation notice
+  });
 });
