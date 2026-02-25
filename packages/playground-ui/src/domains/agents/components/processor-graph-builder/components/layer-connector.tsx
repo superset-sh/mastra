@@ -3,7 +3,7 @@ import { Icon } from '@/ds/icons/Icon';
 
 export function LayerConnector() {
   return (
-    <div className="flex justify-center -my-1 text-neutral3">
+    <div className="flex justify-center py-2 text-neutral3">
       <Icon>
         <ChevronDown />
       </Icon>

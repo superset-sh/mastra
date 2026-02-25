@@ -22,7 +22,7 @@ export function ParallelLayerBody({ layer }: ParallelLayerBodyProps) {
   return (
     <div className="flex flex-col gap-2">
       {!readOnly && (
-        <Button variant="outline" size="sm" onClick={() => builder.addBranch(layer.id)}>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => builder.addBranch(layer.id)}>
           <Plus className="h-3.5 w-3.5 mr-1.5" />
           Add branch
         </Button>

@@ -67,7 +67,7 @@ export function ProcessorGraphCanvas() {
       <ScrollArea className="flex-1 min-h-0">
         <Droppable droppableId="layer-list" type="LAYER">
           {provided => (
-            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-0 p-4">
+            <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-1 p-4">
               {state.layers.map((layer, index) => (
                 <div key={layer.id}>
                   {index > 0 && <LayerConnector />}
