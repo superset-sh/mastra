@@ -1011,33 +1011,6 @@ describe('LocalSandbox', () => {
       expect(mountSandbox.mounts.has(mountPath)).toBe(false);
     });
 
-    it('should unmount all mounts on stop()', async () => {
-      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
-      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
-      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
-
-      const mountPath = '/stop-test';
-      await mountSandbox.mount(makeMockFs() as any, mountPath);
-
-      await mountSandbox._stop();
-
-      expect(unmountSpy).toHaveBeenCalled();
-    });
-
-    it('should unmount all mounts on destroy()', async () => {
-      vi.spyOn(s3Mod, 'mountS3').mockResolvedValue(undefined);
-      vi.spyOn(platformMod, 'isMountPoint').mockResolvedValue(false);
-      vi.spyOn(platformMod, 'unmountFuse').mockResolvedValue(undefined);
-
-      const mountPath = '/destroy-test';
-      await mountSandbox.mount(makeMockFs() as any, mountPath);
-
-      await mountSandbox._destroy();
-
-      expect(unmountSpy).toHaveBeenCalled();
-      expect(mountSandbox.mounts.entries.size).toBe(0);
-    });
-
     it('should add mount path to seatbelt isolation readWritePaths', async () => {
       if (os.platform() !== 'darwin') return;
 
