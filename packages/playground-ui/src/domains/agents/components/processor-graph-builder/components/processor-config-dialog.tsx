@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { SideDialog } from '@/ds/components/SideDialog';
 import { Button } from '@/ds/components/Button';
 import { Checkbox } from '@/ds/components/Checkbox';
@@ -7,6 +7,7 @@ import { resolveSerializedZodOutput } from '@/lib/form/utils';
 import { jsonSchemaToZod } from '@mastra/schema-compat/json-to-zod';
 import type { ProcessorGraphStep, ProcessorPhase } from '../types';
 import { useProcessorProviderDetails } from '@/domains/processors/hooks';
+import z from 'zod';
 
 interface ProcessorConfigDialogProps {
   step: ProcessorGraphStep;
@@ -17,15 +18,6 @@ interface ProcessorConfigDialogProps {
 
 export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: ProcessorConfigDialogProps) {
   const { data: providerDetails } = useProcessorProviderDetails(step.providerId || null);
-  const [config, setConfig] = useState<Record<string, unknown>>(step.config);
-  const [enabledPhases, setEnabledPhases] = useState<ProcessorPhase[]>(step.enabledPhases);
-
-  useEffect(() => {
-    if (isOpen) {
-      setConfig(step.config);
-      setEnabledPhases(step.enabledPhases);
-    }
-  }, [isOpen, step.config, step.enabledPhases]);
 
   const availablePhases = (providerDetails?.availablePhases ?? []) as ProcessorPhase[];
 
@@ -42,12 +34,8 @@ export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: Process
     }
   }, [providerDetails?.configSchema]);
 
-  const togglePhase = (phase: ProcessorPhase) => {
-    setEnabledPhases(prev => (prev.includes(phase) ? prev.filter(p => p !== phase) : [...prev, phase]));
-  };
-
-  const handleSave = () => {
-    onSave(config, enabledPhases);
+  const handleSave = (values: Record<string, unknown>, enabledPhases: ProcessorPhase[]) => {
+    onSave(values, enabledPhases);
     onClose();
   };
 
@@ -65,35 +53,64 @@ export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: Process
           <Button variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" onClick={handleSave} disabled={enabledPhases.length === 0}>
-            Save
-          </Button>
         </div>
       </SideDialog.Top>
 
       <SideDialog.Content>
-        <div className="flex flex-col gap-6">
-          <div>
-            <h4 className="text-ui-sm font-medium text-neutral5 mb-3">Enabled Phases</h4>
-            <div className="flex flex-col gap-2">
-              {availablePhases.map(phase => (
-                <label key={phase} className="flex items-center gap-2 text-ui-sm text-neutral5 cursor-pointer">
-                  <Checkbox checked={enabledPhases.includes(phase)} onCheckedChange={() => togglePhase(phase)} />
-                  {phase}
-                </label>
-              ))}
-              {availablePhases.length === 0 && <p className="text-ui-sm text-neutral3">Loading available phases...</p>}
-            </div>
-          </div>
-
-          {zodSchema && (
-            <div>
-              <h4 className="text-ui-sm font-medium text-neutral5 mb-3">Configuration</h4>
-              <DynamicForm schema={zodSchema} onValuesChange={setConfig} defaultValues={config} />
-            </div>
-          )}
-        </div>
+        {isOpen && (
+          <InnerDialog
+            availablePhases={availablePhases}
+            config={step.config}
+            initialEnabledPhases={step.enabledPhases}
+            zodSchema={zodSchema}
+            onSave={handleSave}
+          />
+        )}
       </SideDialog.Content>
     </SideDialog>
   );
 }
+
+interface InnerDialogProps {
+  availablePhases: ProcessorPhase[];
+  config: Record<string, unknown>;
+  initialEnabledPhases: ProcessorPhase[];
+  zodSchema: z.ZodSchema;
+  onSave: (config: Record<string, unknown>, enabledPhases: ProcessorPhase[]) => void;
+}
+
+const InnerDialog = ({ availablePhases, config, initialEnabledPhases, zodSchema, onSave }: InnerDialogProps) => {
+  const [enabledPhases, setEnabledPhases] = useState<ProcessorPhase[]>(initialEnabledPhases);
+
+  const togglePhase = (phase: ProcessorPhase) => {
+    setEnabledPhases(prev => (prev.includes(phase) ? prev.filter(p => p !== phase) : [...prev, phase]));
+  };
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h4 className="text-ui-sm font-medium text-neutral5 mb-3">Enabled Phases</h4>
+        <div className="flex flex-col gap-2">
+          {availablePhases.map(phase => (
+            <label key={phase} className="flex items-center gap-2 text-ui-sm text-neutral5 cursor-pointer">
+              <Checkbox checked={enabledPhases.includes(phase)} onCheckedChange={() => togglePhase(phase)} />
+              {phase}
+            </label>
+          ))}
+          {availablePhases.length === 0 && <p className="text-ui-sm text-neutral3">Loading available phases...</p>}
+        </div>
+      </div>
+
+      {zodSchema && (
+        <div>
+          <h4 className="text-ui-sm font-medium text-neutral5 mb-3">Configuration</h4>
+          <DynamicForm
+            schema={zodSchema}
+            onSubmit={values => onSave(values as Record<string, unknown>, enabledPhases)}
+            defaultValues={config}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
