@@ -34,7 +34,7 @@ import type { MastraIdGenerator, IdGeneratorContext } from '../types';
 import type { MastraVector } from '../vector';
 import type { AnyWorkflow, Workflow } from '../workflows';
 import { WorkflowEventProcessor } from '../workflows/evented/workflow-event-processor';
-import type { AnyWorkspace, Workspace } from '../workspace';
+import type { AnyWorkspace, RegisteredWorkspace, Workspace } from '../workspace';
 import { createOnScorerHook } from './hooks';
 
 /**
@@ -334,7 +334,7 @@ export class Mastra<
     new Map();
   #memory?: TMemory;
   #workspace?: Workspace;
-  #workspaces: Record<string, Workspace> = {};
+  #workspaces: Record<string, RegisteredWorkspace> = {};
   #server?: ServerConfig;
   #serverAdapter?: MastraServerBase;
   #mcpServers?: TMCPServers;
@@ -643,7 +643,7 @@ export class Mastra<
     if (config?.workspace) {
       this.#workspace = config.workspace;
       // Also register in the workspaces registry for direct lookup by ID
-      this.addWorkspace(config.workspace);
+      this.addWorkspace(config.workspace, undefined, { source: 'mastra' });
     }
 
     if (config?.scorers) {
@@ -922,7 +922,11 @@ export class Mastra<
       Promise.resolve(mastraAgent.getWorkspace?.())
         .then(workspace => {
           if (workspace) {
-            this.addWorkspace(workspace);
+            this.addWorkspace(workspace, undefined, {
+              source: 'agent',
+              agentId: mastraAgent.id ?? agentKey,
+              agentName: mastraAgent.name,
+            });
           }
         })
         .catch(err => {
@@ -1371,8 +1375,8 @@ export class Mastra<
    * ```
    */
   public getWorkspaceById(id: string): Workspace {
-    const workspace = this.#workspaces[id];
-    if (!workspace) {
+    const entry = this.#workspaces[id];
+    if (!entry) {
       const error = new MastraError({
         id: 'MASTRA_GET_WORKSPACE_BY_ID_NOT_FOUND',
         domain: ErrorDomain.MASTRA,
@@ -1387,7 +1391,7 @@ export class Mastra<
       this.#logger?.trackException(error);
       throw error;
     }
-    return workspace;
+    return entry.workspace;
   }
 
   /**
@@ -1396,12 +1400,12 @@ export class Mastra<
    * @example
    * ```typescript
    * const workspaces = mastra.listWorkspaces();
-   * for (const [id, workspace] of Object.entries(workspaces)) {
-   *   console.log(`Workspace ${id}: ${workspace.name}`);
+   * for (const [id, entry] of Object.entries(workspaces)) {
+   *   console.log(`Workspace ${id}: ${entry.workspace.name} (source: ${entry.source})`);
    * }
    * ```
    */
-  public listWorkspaces(): Record<string, Workspace> {
+  public listWorkspaces(): Record<string, RegisteredWorkspace> {
     return { ...this.#workspaces };
   }
 
@@ -1421,9 +1425,23 @@ export class Mastra<
    * mastra.addWorkspace(workspace);
    * ```
    */
-  public addWorkspace(workspace: AnyWorkspace, key?: string): void {
+  public addWorkspace(
+    workspace: AnyWorkspace,
+    key?: string,
+    metadata?: { source?: 'mastra' | 'agent'; agentId?: string; agentName?: string },
+  ): void {
     if (!workspace) {
       throw createUndefinedPrimitiveError('workspace', workspace, key);
+    }
+    const source = metadata?.source ?? (metadata?.agentId || metadata?.agentName ? 'agent' : 'mastra');
+    if (source === 'agent' && (!metadata?.agentId || !metadata?.agentName)) {
+      throw new MastraError({
+        id: 'MASTRA_ADD_WORKSPACE_MISSING_AGENT_METADATA',
+        domain: ErrorDomain.MASTRA,
+        category: ErrorCategory.USER,
+        text: 'Agent workspaces must include agentId and agentName.',
+        details: { status: 400, workspaceId: key || workspace.id },
+      });
     }
     const workspaceKey = key || workspace.id;
     if (this.#workspaces[workspaceKey]) {
@@ -1432,7 +1450,12 @@ export class Mastra<
       return;
     }
 
-    this.#workspaces[workspaceKey] = workspace;
+    this.#workspaces[workspaceKey] = {
+      workspace,
+      source,
+      ...(metadata?.agentId ? { agentId: metadata.agentId } : {}),
+      ...(metadata?.agentName ? { agentName: metadata.agentName } : {}),
+    };
   }
 
   /**
