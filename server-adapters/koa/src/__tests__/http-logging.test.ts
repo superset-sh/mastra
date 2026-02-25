@@ -1,5 +1,6 @@
 import { createHttpLoggingTestSuite } from '@internal/server-adapter-test-utils';
-import Koa, { type Context, type Next } from 'koa';
+import Koa from 'koa';
+import type { Context, Next } from 'koa';
 import { describe } from 'vitest';
 import { MastraServer } from '../index';
 
