@@ -1,5 +1,5 @@
 import { createHttpLoggingTestSuite } from '@internal/server-adapter-test-utils';
-import Koa from 'koa';
+import Koa, { type Context, type Next } from 'koa';
 import { describe } from 'vitest';
 import { MastraServer } from '../index';
 
@@ -15,12 +15,12 @@ describe('Koa Server Adapter', () => {
     },
 
     addRoute: async (app, method, path, handler) => {
-      app.use(async (ctx: any, next: any) => {
+      app.use(async (ctx: Context, next: Next) => {
         if (ctx.method === method && ctx.path === path) {
           const result = await handler(ctx);
-          if (result.status) {
+          if (result && typeof result === 'object' && 'status' in result) {
             ctx.status = result.status;
-            ctx.body = result.body || {};
+            ctx.body = result.body ?? {};
           } else {
             ctx.body = result;
           }
@@ -33,7 +33,7 @@ describe('Koa Server Adapter', () => {
     executeRequest: async (app, method, url, options = {}) => {
       const parsedUrl = new URL(url);
 
-      return new Promise(resolve => {
+      return new Promise<{ status: number }>((resolve, reject) => {
         const callback = app.callback();
 
         // Create minimal req/res objects
@@ -65,7 +65,11 @@ describe('Koa Server Adapter', () => {
         };
 
         // Execute
-        callback(req, res);
+        try {
+          Promise.resolve(callback(req, res)).catch(reject);
+        } catch (error) {
+          reject(error);
+        }
       });
     },
   });
