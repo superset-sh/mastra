@@ -38,6 +38,12 @@ If you have an Anthropic Claude Max or OpenAI ChatGPT Plus subscription, you can
 
 OAuth credentials are stored in `auth.json` alongside the database in the [app data directory](#database-location). During onboarding, you can skip the OAuth step if you already have API keys configured.
 
+### Anthropic OAuth warning
+
+Authenticating with a Claude Max subscription is a grey area that may violate Anthropic's Terms of Service. Mastra Code displays a warning each time you start the Anthropic OAuth flow (via `/login` or during onboarding) with **Continue** and **Cancel** options. Cancel returns you to the provider selection screen.
+
+If you already have Anthropic OAuth credentials and have not previously acknowledged the warning, Mastra Code also shows the warning once at startup with **Continue** (keep credentials) and **Remove OAuth** (log out from Anthropic) options.
+
 ## MCP servers
 
 Mastra Code can connect to external [MCP](/docs/mcp/overview) servers and make their tools available to the agent. Configure servers in JSON files:
