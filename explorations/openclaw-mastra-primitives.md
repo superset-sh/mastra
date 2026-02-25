@@ -1401,28 +1401,712 @@ This composition uses every major Mastra primitive:
 
 ### Gaps to Fill
 
-| Area | Gap | Mitigation |
+There are four gaps between what Mastra primitives provide and what OpenClaw ships. Each is broken down with scope, complexity, and implementation approach.
+
+---
+
+### Gap 1: Channel Adapters
+
+**What OpenClaw provides**: Built-in adapters for 15+ messaging platforms — WhatsApp (Baileys + QR pairing), Telegram (grammY), Discord (discord.js), Slack (Bolt SDK), Signal (signal-cli), iMessage, Matrix, Mattermost, Google Chat, and more. Each adapter handles connection lifecycle, message format conversion, media handling, and platform-specific quirks (rate limits, message size limits, threading models).
+
+**What Mastra provides**: Nothing. No channel adapters exist. The Harness operates on `sendMessage({ content })` — it doesn't know or care how messages arrive or are delivered.
+
+**Complexity**: Medium-high per channel, but well-scoped. Each adapter is independent.
+
+**Implementation approach**: Build a `ChannelAdapter` interface and implement per-platform:
+
+```typescript
+interface ChannelAdapter {
+  readonly id: string;
+  readonly name: string;
+
+  // Lifecycle
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  isConnected(): boolean;
+
+  // Messaging
+  sendMessage(to: string, content: ChannelMessage): Promise<void>;
+  formatIncoming(raw: unknown): IncomingMessage;
+
+  // Platform-specific
+  getCapabilities(): ChannelCapabilities;
+}
+
+interface ChannelMessage {
+  text?: string;
+  media?: Array<{ type: 'image' | 'video' | 'audio' | 'file'; url: string }>;
+  replyTo?: string;
+}
+
+interface IncomingMessage {
+  text: string;
+  from: string;
+  channelId: string;
+  threadId?: string;
+  media?: Array<{ type: string; url: string }>;
+  metadata: Record<string, unknown>;
+}
+
+interface ChannelCapabilities {
+  maxMessageLength: number;
+  supportsMedia: boolean;
+  supportsThreading: boolean;
+  supportsReactions: boolean;
+  supportsEditing: boolean;
+}
+```
+
+Each adapter wraps an existing SDK:
+
+| Channel | SDK | Key Complexity |
 |---|---|---|
-| **Channel gateway** | Mastra has no built-in messaging channel adapters (WhatsApp, Telegram, etc.) | Build as custom API routes + channel adapter registry (shown in Section 5) |
-| **Message debouncing** | No built-in message batching/debouncing for rapid-fire messages | Thin application-level buffer (shown in Section 5) |
-| **Long-lived connections** | Mastra's server model is request/response; OpenClaw maintains persistent WebSocket connections | Use Hono's WebSocket support or pipe Harness events to a WebSocket layer |
-| **Device pairing** | OpenClaw's WhatsApp/Signal pairing flow is channel-specific | Channel adapters would handle this per-channel |
+| WhatsApp | `@whiskeysockets/baileys` | QR pairing, multi-device, media upload to WhatsApp servers |
+| Telegram | `grammy` | Webhooks or polling, inline keyboards, media groups |
+| Discord | `discord.js` | Gateway connection (WebSocket), slash commands, embeds |
+| Slack | `@slack/bolt` | Socket Mode or HTTP events, blocks, threading |
+| Signal | `signal-cli` (subprocess) | DBUS interface, group management |
 
-Note how much shorter this gaps list is compared to a mapping without the Harness. The Harness eliminates several categories that would otherwise be gaps: message queueing, tool approvals, interactive tools, display state, model switching, and cron scheduling (via heartbeat handlers).
+The adapters themselves are not AI-related — they're standard messaging integrations. The interesting part is wiring them to the Harness:
 
-### Architectural Differences Worth Noting
+```typescript
+class ChannelGateway {
+  private adapters = new Map<string, ChannelAdapter>();
+  private harness: Harness;
+  private debounceBuffers = new Map<string, MessageBuffer>();
 
-1. **Two-layer orchestration**: Mastra splits orchestration into `Mastra` (declarative DI — what components exist) and `Harness` (runtime orchestration — how they interact at runtime). OpenClaw's Gateway conflates both concerns. Mastra's separation means you can have multiple Harness instances sharing the same infrastructure (e.g., per-project or per-user).
+  constructor(harness: Harness, adapters: ChannelAdapter[]) {
+    this.harness = harness;
+    for (const adapter of adapters) {
+      this.adapters.set(adapter.id, adapter);
+    }
+  }
 
-2. **Event-driven vs. request/response**: The Harness's event system (35+ event types) makes it natural to build real-time UIs — subscribe to events and stream updates. OpenClaw's Gateway uses WebSocket connections for a similar effect, but the Harness's event taxonomy is more structured.
+  async start() {
+    for (const [id, adapter] of this.adapters) {
+      await adapter.connect();
+    }
 
-3. **Multi-mode vs. single agent**: OpenClaw runs a single embedded agent. The Harness's mode system lets you switch between specialized agents (coding, research, planning) within the same session, preserving thread context across mode switches.
+    // Subscribe to Harness events to route responses back to channels
+    this.harness.subscribe((event) => {
+      if (event.type === 'message_end') {
+        this.routeResponse(event.data);
+      }
+    });
+  }
 
-4. **Subagents vs. nodes**: OpenClaw's node delegation is implicit (the agent decides to delegate). Harness subagents are explicit, configured, and constrained — each subagent has a defined purpose and limited tool access. This reduces the surface area for unintended behavior.
+  async handleIncoming(adapterId: string, raw: unknown) {
+    const adapter = this.adapters.get(adapterId)!;
+    const message = adapter.formatIncoming(raw);
+    const key = `${adapterId}:${message.from}`;
 
-5. **Memory model**: OpenClaw's memory is file-based (JSONL transcripts + workspace files). Mastra's memory is database-backed with semantic search, working memory templates, observational memory, and resource scoping. The Harness integrates observational memory events directly into its event stream.
+    // Debounce rapid messages (see Gap 2)
+    this.debounce(key, message, async (combined) => {
+      this.harness.setState({ activeChannel: adapterId });
 
-6. **Extension model**: OpenClaw's plugin system has had security issues (400+ malicious plugins discovered). Mastra's MCP integration uses a standard protocol with better isolation guarantees.
+      if (this.harness.isRunning()) {
+        await this.harness.followUp({ content: combined.text });
+      } else {
+        await this.harness.sendMessage({
+          content: combined.text,
+          images: combined.media?.map(m => m.url) ?? [],
+        });
+      }
+    });
+  }
+}
+```
+
+**Effort estimate**: ~2-3 days per channel adapter for basic messaging. Full feature parity (media, reactions, threading, presence) adds another 2-3 days per channel.
+
+---
+
+### Gap 2: Message Debouncing and Deduplication
+
+**What OpenClaw provides**: Built-in per-channel debouncing with configurable timing (default 2000ms, WhatsApp 5000ms, Slack/Discord 1500ms). Text-only messages debounce; media flushes immediately. Control commands bypass debouncing. Short-lived deduplication cache prevents duplicate agent runs from channel redeliveries.
+
+**What Mastra provides**: The Harness provides `steer()` and `followUp()` for queueing during active runs, but no debouncing (batching rapid idle-state messages) and no deduplication.
+
+**Complexity**: Low. This is ~100 lines of stateful buffering logic.
+
+**Implementation approach**:
+
+```typescript
+interface DebounceConfig {
+  defaultMs: number;
+  byChannel: Record<string, number>;
+  flushOnMedia: boolean;
+}
+
+const DEFAULT_DEBOUNCE: DebounceConfig = {
+  defaultMs: 2000,
+  byChannel: {
+    whatsapp: 5000,
+    slack: 1500,
+    discord: 1500,
+  },
+  flushOnMedia: true,
+};
+
+class MessageDebouncer {
+  private buffers = new Map<string, {
+    messages: IncomingMessage[];
+    timer: NodeJS.Timeout;
+  }>();
+  private seen = new Map<string, number>(); // dedup cache: messageId → timestamp
+  private config: DebounceConfig;
+
+  constructor(config: DebounceConfig = DEFAULT_DEBOUNCE) {
+    this.config = config;
+    // Purge stale dedup entries every 60s
+    setInterval(() => this.purgeDedup(), 60_000);
+  }
+
+  submit(
+    message: IncomingMessage,
+    onFlush: (combined: IncomingMessage) => void,
+  ) {
+    // Deduplication — reject if we've seen this message ID recently
+    const dedupKey = `${message.channelId}:${message.from}:${message.metadata.messageId}`;
+    if (this.seen.has(dedupKey)) return;
+    this.seen.set(dedupKey, Date.now());
+
+    const bufferKey = `${message.channelId}:${message.from}`;
+    const debounceMs = this.config.byChannel[message.channelId]
+      ?? this.config.defaultMs;
+
+    // Media flushes immediately
+    if (this.config.flushOnMedia && message.media?.length) {
+      this.flush(bufferKey, onFlush, message);
+      return;
+    }
+
+    const buffer = this.buffers.get(bufferKey) ?? { messages: [], timer: null! };
+    clearTimeout(buffer.timer);
+    buffer.messages.push(message);
+
+    buffer.timer = setTimeout(() => {
+      this.flush(bufferKey, onFlush);
+    }, debounceMs);
+
+    this.buffers.set(bufferKey, buffer);
+  }
+
+  private flush(
+    key: string,
+    onFlush: (combined: IncomingMessage) => void,
+    immediate?: IncomingMessage,
+  ) {
+    const buffer = this.buffers.get(key);
+    const messages = immediate
+      ? [...(buffer?.messages ?? []), immediate]
+      : (buffer?.messages ?? []);
+
+    this.buffers.delete(key);
+    if (messages.length === 0) return;
+
+    const combined: IncomingMessage = {
+      text: messages.map(m => m.text).filter(Boolean).join('\n'),
+      from: messages[0].from,
+      channelId: messages[0].channelId,
+      media: messages.flatMap(m => m.media ?? []),
+      metadata: messages[0].metadata,
+    };
+
+    onFlush(combined);
+  }
+
+  private purgeDedup() {
+    const cutoff = Date.now() - 60_000;
+    for (const [key, ts] of this.seen) {
+      if (ts < cutoff) this.seen.delete(key);
+    }
+  }
+}
+```
+
+**Effort estimate**: ~Half a day. The logic is straightforward.
+
+---
+
+### Gap 3: Harness Event Transport (WebSocket / SSE Bridge)
+
+**What OpenClaw provides**: A persistent WebSocket server (default `ws://localhost:18789`) with a typed JSON protocol. Clients connect, authenticate, and receive real-time events. The protocol has three frame types: `event`, `request`, and `response`. Clients declare roles (`node` or `operator`) and scopes during handshake.
+
+**What Mastra provides**: The Harness has a rich event system (35+ event types) with `subscribe(listener)`, but it's **in-process only**. There's no built-in way to stream Harness events over HTTP, SSE, or WebSocket to remote clients. Mastra's server has SSE support via Hono's `streamSSE` (used by MCP), but no bridge from Harness events to that transport.
+
+**Complexity**: Medium. The event taxonomy already exists — the work is building the transport bridge and client protocol.
+
+**Implementation approach**: Build a `HarnessTransport` that bridges Harness events to WebSocket and/or SSE:
+
+```typescript
+import { Hono } from 'hono';
+import { createBunWebSocket } from 'hono/bun'; // or node adapter
+import { streamSSE } from 'hono/streaming';
+import type { Harness, HarnessEvent } from '@mastra/core/harness';
+
+// Frame types matching OpenClaw's protocol structure
+type ServerFrame =
+  | { type: 'event'; event: string; payload: unknown; seq: number }
+  | { type: 'res'; id: string; ok: true; payload: unknown }
+  | { type: 'res'; id: string; ok: false; error: string };
+
+type ClientFrame =
+  | { type: 'req'; id: string; method: string; params: unknown };
+
+class HarnessTransport {
+  private harness: Harness;
+  private app: Hono;
+  private seq = 0;
+
+  constructor(harness: Harness) {
+    this.harness = harness;
+    this.app = new Hono();
+    this.setupRoutes();
+  }
+
+  private setupRoutes() {
+    // WebSocket endpoint — persistent bidirectional connection
+    const { upgradeWebSocket, websocket } = createBunWebSocket();
+
+    this.app.get('/ws', upgradeWebSocket((c) => ({
+      onOpen: (_event, ws) => {
+        const unsubscribe = this.harness.subscribe((event) => {
+          const frame: ServerFrame = {
+            type: 'event',
+            event: event.type,
+            payload: event.data,
+            seq: ++this.seq,
+          };
+          ws.send(JSON.stringify(frame));
+        });
+
+        // Store unsubscribe for cleanup
+        (ws as any).__unsubscribe = unsubscribe;
+      },
+
+      onMessage: async (event, ws) => {
+        const frame: ClientFrame = JSON.parse(event.data.toString());
+        try {
+          const result = await this.handleRequest(frame);
+          ws.send(JSON.stringify({
+            type: 'res', id: frame.id, ok: true, payload: result,
+          }));
+        } catch (err: any) {
+          ws.send(JSON.stringify({
+            type: 'res', id: frame.id, ok: false, error: err.message,
+          }));
+        }
+      },
+
+      onClose: (_event, ws) => {
+        (ws as any).__unsubscribe?.();
+      },
+    })));
+
+    // SSE endpoint — one-way event stream (simpler, works through proxies)
+    this.app.get('/events', async (c) => {
+      return streamSSE(c, async (stream) => {
+        const unsubscribe = this.harness.subscribe((event) => {
+          stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(event.data),
+            id: String(++this.seq),
+          });
+        });
+
+        // Keep connection alive
+        const heartbeat = setInterval(() => {
+          stream.writeSSE({ event: 'heartbeat', data: '{}' });
+        }, 30_000);
+
+        stream.onAbort(() => {
+          unsubscribe();
+          clearInterval(heartbeat);
+        });
+
+        // Block until client disconnects
+        await new Promise(() => {});
+      });
+    });
+
+    // REST endpoints for Harness commands
+    this.app.post('/send', async (c) => {
+      const { content, images } = await c.req.json();
+      await this.harness.sendMessage({ content, images });
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/steer', async (c) => {
+      const { content } = await c.req.json();
+      await this.harness.steer({ content });
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/followup', async (c) => {
+      const { content } = await c.req.json();
+      await this.harness.followUp({ content });
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/abort', async (c) => {
+      await this.harness.abort();
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/approve', async (c) => {
+      const { decision } = await c.req.json();
+      await this.harness.respondToToolApproval({ decision });
+      return c.json({ ok: true });
+    });
+
+    this.app.get('/state', async (c) => {
+      return c.json(this.harness.getDisplayState());
+    });
+
+    this.app.get('/threads', async (c) => {
+      const threads = await this.harness.listThreads({});
+      return c.json(threads);
+    });
+
+    this.app.post('/threads', async (c) => {
+      const { title } = await c.req.json();
+      await this.harness.createThread({ title });
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/mode', async (c) => {
+      const { modeId } = await c.req.json();
+      await this.harness.switchMode({ modeId });
+      return c.json({ ok: true });
+    });
+
+    this.app.post('/model', async (c) => {
+      const { modelId, scope, modeId } = await c.req.json();
+      await this.harness.switchModel({ modelId, scope, modeId });
+      return c.json({ ok: true });
+    });
+  }
+
+  private async handleRequest(frame: ClientFrame): Promise<unknown> {
+    switch (frame.method) {
+      case 'send': return this.harness.sendMessage(frame.params as any);
+      case 'steer': return this.harness.steer(frame.params as any);
+      case 'followup': return this.harness.followUp(frame.params as any);
+      case 'abort': return this.harness.abort();
+      case 'approve': return this.harness.respondToToolApproval(frame.params as any);
+      case 'switch_mode': return this.harness.switchMode(frame.params as any);
+      case 'switch_model': return this.harness.switchModel(frame.params as any);
+      case 'list_threads': return this.harness.listThreads(frame.params as any);
+      case 'get_state': return this.harness.getDisplayState();
+      default: throw new Error(`Unknown method: ${frame.method}`);
+    }
+  }
+
+  getApp() { return this.app; }
+}
+```
+
+**What this provides vs. OpenClaw's protocol**:
+
+| Feature | OpenClaw | HarnessTransport |
+|---|---|---|
+| Event streaming | WebSocket events | WebSocket + SSE |
+| Request/response | WebSocket frames | WebSocket + REST |
+| Client roles (node/operator) | Built-in | Not needed — Harness doesn't have the node concept |
+| Scoped permissions | Per-connection scopes | Delegate to Harness permission system |
+| TypeBox schema validation | Runtime validation | Zod validation on Harness state |
+| Device pairing | Handshake + pairing codes | Bearer token auth (simpler model) |
+
+**Effort estimate**: ~2-3 days for the core transport. The Harness already has the event taxonomy and the control API — this is purely plumbing.
+
+---
+
+### Gap 4: Device Pairing and Channel Authentication
+
+**What OpenClaw provides**: Per-channel authentication flows:
+- **WhatsApp**: QR code scanning (WhatsApp Web linked device model), session persistence across restarts
+- **Signal**: signal-cli device linking
+- **Telegram**: Bot token (simple)
+- **Discord**: Bot token + OAuth2 for user actions (simple)
+- **Slack**: OAuth2 app installation flow
+- **DM pairing**: Unknown senders receive an 8-character pairing code, approved via CLI
+
+OpenClaw stores credentials in `~/.openclaw/credentials/` with allowlists and pending pairing requests.
+
+**What Mastra provides**: Nothing channel-specific. The Harness has no concept of channel authentication. Mastra's server supports `defineAuth()` for HTTP authentication, but that's for API consumers, not messaging platform connections.
+
+**Complexity**: Varies wildly by channel. Telegram/Discord/Slack are trivial (API tokens). WhatsApp and Signal are complex (session management, re-authentication, multi-device).
+
+**Implementation approach**: This is inherently per-channel. Each channel adapter handles its own auth:
+
+```typescript
+interface ChannelAuth {
+  // Channel-specific credential storage
+  getCredentials(): Promise<ChannelCredentials | null>;
+  saveCredentials(creds: ChannelCredentials): Promise<void>;
+
+  // Pairing flow (for channels that need it)
+  initiatePairing(): Promise<PairingChallenge>;
+  completePairing(response: string): Promise<boolean>;
+}
+
+// WhatsApp — most complex
+class WhatsAppAuth implements ChannelAuth {
+  private store: MastraCompositeStore;
+
+  async initiatePairing(): Promise<PairingChallenge> {
+    // Generate QR code using Baileys
+    const { state, saveCreds } = await useMultiFileAuthState('./auth/whatsapp');
+    const sock = makeWASocket({ auth: state });
+
+    return new Promise((resolve) => {
+      sock.ev.on('connection.update', (update) => {
+        if (update.qr) {
+          resolve({ type: 'qr', data: update.qr, expiresIn: 60 });
+        }
+      });
+    });
+  }
+
+  // ...
+}
+
+// Telegram — trivial
+class TelegramAuth implements ChannelAuth {
+  async getCredentials() {
+    return { token: process.env.TELEGRAM_BOT_TOKEN };
+  }
+  async initiatePairing() {
+    throw new Error('Telegram uses bot tokens, no pairing needed');
+  }
+  // ...
+}
+```
+
+**DM pairing** (allow unknown senders) can use the Harness's `ask_user` pattern:
+
+```typescript
+class DMPairingManager {
+  private pendingCodes = new Map<string, { code: string; channelId: string; from: string; expiresAt: number }>();
+
+  async handleUnknownSender(channelId: string, from: string): Promise<string> {
+    const code = generatePairingCode(8);
+    this.pendingCodes.set(code, {
+      code,
+      channelId,
+      from,
+      expiresAt: Date.now() + 3600_000, // 1 hour
+    });
+
+    // Send the code back to the unknown sender
+    await channels.get(channelId)!.sendMessage(from,
+      `To connect, share this code with the operator: ${code}`
+    );
+
+    return code;
+  }
+
+  async approve(code: string): Promise<boolean> {
+    const pending = this.pendingCodes.get(code);
+    if (!pending || pending.expiresAt < Date.now()) return false;
+
+    // Add to allowlist in storage
+    await storage.getStore('memory').then(s =>
+      s?.saveResource({ resource: { id: `${pending.channelId}:${pending.from}`, approved: true } })
+    );
+
+    this.pendingCodes.delete(code);
+    return true;
+  }
+}
+```
+
+**Effort estimate**: Telegram/Discord/Slack — 1 day each (token-based). WhatsApp — 3-5 days (QR pairing, session persistence, reconnection). Signal — 3-5 days (signal-cli integration, device linking). DM pairing system — 1 day.
+
+---
+
+### Gap 5: Advanced Queue Modes
+
+**What OpenClaw provides**: Five queue modes with configuration:
+- **`steer`**: Inject into current run, cancel pending tool calls after next boundary
+- **`followup`**: Enqueue for next turn after current run completes
+- **`collect`** (default): Coalesce all queued messages into a single followup turn
+- **`steer-backlog`**: Steer now AND preserve for followup
+- **`interrupt`**: Abort active run, run newest message
+
+Plus overflow policies (`drop: 'old' | 'new' | 'summarize'`), per-session queue caps, and per-channel debounce.
+
+**What Mastra provides**: The Harness has `steer()`, `followUp()`, and `abort()`. This covers the core mechanics but not the policy layer — there's no built-in `collect` mode (coalescing), no `steer-backlog` mode (steer + followup), no overflow caps, and no `summarize` drop policy.
+
+**Complexity**: Low-medium. The Harness provides the building blocks; this is a policy layer on top.
+
+**Implementation approach**:
+
+```typescript
+type QueueMode = 'steer' | 'followup' | 'collect' | 'steer-backlog' | 'interrupt';
+
+interface QueueConfig {
+  defaultMode: QueueMode;
+  byChannel: Record<string, QueueMode>;
+  cap: number;
+  dropPolicy: 'old' | 'new' | 'summarize';
+  debounceMs: number;
+}
+
+class MessageQueue {
+  private pending: IncomingMessage[] = [];
+  private harness: Harness;
+  private config: QueueConfig;
+
+  constructor(harness: Harness, config: QueueConfig) {
+    this.harness = harness;
+    this.config = config;
+
+    // When an agent run completes, flush collected messages
+    this.harness.subscribe((event) => {
+      if (event.type === 'agent_end') {
+        this.flushCollected();
+      }
+    });
+  }
+
+  async enqueue(message: IncomingMessage) {
+    if (!this.harness.isRunning()) {
+      await this.harness.sendMessage({ content: message.text });
+      return;
+    }
+
+    const mode = this.config.byChannel[message.channelId]
+      ?? this.config.defaultMode;
+
+    switch (mode) {
+      case 'steer':
+        await this.harness.steer({ content: message.text });
+        break;
+
+      case 'followup':
+        this.addToPending(message);
+        break;
+
+      case 'collect':
+        this.addToPending(message);
+        // Will be coalesced and sent as one message on agent_end
+        break;
+
+      case 'steer-backlog':
+        await this.harness.steer({ content: message.text });
+        this.addToPending(message);
+        break;
+
+      case 'interrupt':
+        await this.harness.abort();
+        await this.harness.sendMessage({ content: message.text });
+        break;
+    }
+  }
+
+  private addToPending(message: IncomingMessage) {
+    if (this.pending.length >= this.config.cap) {
+      switch (this.config.dropPolicy) {
+        case 'old':
+          this.pending.shift();
+          break;
+        case 'new':
+          return; // Drop incoming
+        case 'summarize':
+          // Keep first and last, summarize middle
+          const summary = `[${this.pending.length - 1} earlier messages summarized]`;
+          this.pending = [
+            { ...this.pending[0], text: summary },
+            this.pending[this.pending.length - 1],
+          ];
+          break;
+      }
+    }
+    this.pending.push(message);
+  }
+
+  private async flushCollected() {
+    if (this.pending.length === 0) return;
+
+    const combined = this.pending.map(m => m.text).join('\n');
+    this.pending = [];
+
+    // Small debounce to catch any trailing messages
+    setTimeout(async () => {
+      await this.harness.sendMessage({ content: combined });
+    }, this.config.debounceMs);
+  }
+}
+```
+
+**Effort estimate**: ~1 day. The hard parts (steer, followup, abort) are already Harness primitives.
+
+---
+
+### Gap 6: Discovery and Networking (mDNS / Tailscale)
+
+**What OpenClaw provides**: LAN discovery via mDNS/Bonjour so clients can find the Gateway without manual configuration. Tailscale integration for secure remote access. Hub-and-spoke architecture with nodes connecting back to the gateway over WebSocket.
+
+**What Mastra provides**: Nothing. Mastra is deployed as a standard HTTP server with no discovery protocol.
+
+**Complexity**: Low priority, low complexity for basic use. OpenClaw's discovery is a convenience feature, not core functionality.
+
+**Implementation approach**: For most deployments this isn't needed — users know where their server is. For LAN discovery:
+
+```typescript
+import { createAdvertisement } from 'bonjour-service';
+
+function advertiseGateway(port: number) {
+  const bonjour = new Bonjour();
+  bonjour.publish({
+    name: 'OpenClaw Gateway',
+    type: 'openclaw',
+    port,
+    txt: { version: '1.0.0' },
+  });
+}
+```
+
+For Tailscale, it's deployment configuration, not application code — run the server behind `tailscale serve`.
+
+**Effort estimate**: ~Half a day for mDNS. Tailscale is ops configuration.
+
+---
+
+### Gap Summary
+
+| Gap | Complexity | Effort | Priority |
+|---|---|---|---|
+| **Channel adapters** | Medium-high per channel | 2-5 days each | High — core value prop |
+| **Message debouncing / dedup** | Low | 0.5 days | High — needed for any channel |
+| **Harness event transport** | Medium | 2-3 days | High — needed for remote UIs |
+| **Device pairing / channel auth** | Varies (trivial to complex) | 1-5 days per channel | Medium — needed for WhatsApp/Signal |
+| **Advanced queue modes** | Low-medium | 1 day | Medium — `steer`/`followUp` cover 80% |
+| **Discovery / networking** | Low | 0.5 days | Low — convenience feature |
+
+**Total effort for full OpenClaw feature parity**: ~4-6 weeks, dominated by channel adapter implementations. The Harness, Agent, Tool, Memory, and Storage primitives cover the hard AI/orchestration problems. The gaps are all in the messaging infrastructure layer — standard platform integration work.
+
+### What the Harness Eliminated
+
+For context, here's what would also be gaps without the Harness:
+
+| Feature | Without Harness (custom code) | With Harness (built-in) |
+|---|---|---|
+| State management | Custom state store + validation | `stateSchema` + `setState()` / `getState()` |
+| Message queueing | Custom queue + middleware | `steer()` / `followUp()` / `abort()` |
+| Tool permissions | Custom per-tool approval logic | Category policies + session grants |
+| User questions | Custom suspend/resume flow | `ask_user` built-in tool |
+| Plan approval | Custom workflow | `submit_plan` built-in tool |
+| Task tracking | Custom data model + storage | `task_write` / `task_check` built-in tools |
+| Display state | Custom event aggregation | `getDisplayState()` canonical snapshot |
+| Real-time UI events | Custom event emitter | 35+ typed events with `subscribe()` |
+| Model switching | Custom configuration management | `switchModel()` with scoping |
+| Mode switching | Multiple agent instances + routing | `switchMode()` with shared threads |
+| Subagent spawning | Custom agent lifecycle management | Built-in `subagent` tool with scoped tools |
+| Background tasks | External cron | Heartbeat handlers |
+| Thread management | Custom thread CRUD | `createThread()` / `switchThread()` / `listThreads()` |
 
 ---
 
@@ -1439,7 +2123,7 @@ The remaining primitives fill in the rest:
 - **Workflow** — Multi-step automation with type-safe chaining
 - **Mastra** — Dependency injection wiring everything together
 
-The only significant work is building the **channel gateway layer** (messaging adapters for WhatsApp, Telegram, Discord, etc.) as application code on top of the Harness. Everything else — the agent runtime, orchestration, state management, tool system, memory, queueing, approvals, and UI integration — maps directly to Mastra primitives.
+The gaps are all in the **messaging infrastructure layer** — channel adapters, debouncing, event transport, and device pairing. This is standard platform integration work, not AI orchestration. The hard problems (agent runtime, multi-agent coordination, memory, tool management, state, approvals) are solved by Mastra primitives.
 
 The resulting system would be:
 - **More structured** — Harness provides a coherent orchestration model vs. imperative Gateway code
