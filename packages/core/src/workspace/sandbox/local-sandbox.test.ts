@@ -522,7 +522,7 @@ describe('LocalSandbox', () => {
       const configHash = crypto
         .createHash('sha256')
         .update(tempDir)
-        .update(JSON.stringify({}))
+        .update(JSON.stringify({ readWritePaths: [], readOnlyPaths: [] }))
         .digest('hex')
         .slice(0, 8);
       const profilePath = path.join(process.cwd(), '.sandbox-profiles', `seatbelt-${configHash}.sb`);
@@ -682,7 +682,7 @@ describe('LocalSandbox', () => {
       const configHash = crypto
         .createHash('sha256')
         .update(tempDir)
-        .update(JSON.stringify({}))
+        .update(JSON.stringify({ readWritePaths: [], readOnlyPaths: [] }))
         .digest('hex')
         .slice(0, 8);
       const profilePath = path.join(process.cwd(), '.sandbox-profiles', `seatbelt-${configHash}.sb`);
@@ -822,6 +822,7 @@ describe('LocalSandbox', () => {
     function makeMockLocalFs(basePath: string, overrides: Partial<WorkspaceFilesystem> = {}): WorkspaceFilesystem {
       return {
         id: 'test-local',
+        name: 'MockLocalFilesystem',
         provider: 'local',
         getMountConfig: () => ({ type: 'local' as const, basePath }),
         readFile: vi.fn(),
@@ -1114,7 +1115,7 @@ describe('LocalSandbox', () => {
 
       expect(mountSandbox['_activeMountPaths'].size).toBe(2);
 
-      await mountSandbox.stop();
+      await mountSandbox._stop();
       expect(mountSandbox['_activeMountPaths'].size).toBe(0);
 
       // Symlinks should be cleaned up
@@ -1130,7 +1131,7 @@ describe('LocalSandbox', () => {
 
       expect(mountSandbox['_activeMountPaths'].size).toBe(1);
 
-      await mountSandbox.destroy();
+      await mountSandbox._destroy();
       expect(mountSandbox['_activeMountPaths'].size).toBe(0);
     });
 

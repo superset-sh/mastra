@@ -176,7 +176,11 @@ export class LocalSandbox extends MastraSandbox {
     this._createdAt = new Date();
     this.workingDirectory = options.workingDirectory ?? path.join(process.cwd(), '.sandbox');
     this.env = options.env ?? {};
-    this._nativeSandboxConfig = options.nativeSandbox ?? {};
+    this._nativeSandboxConfig = {
+      ...options.nativeSandbox,
+      readWritePaths: [...(options.nativeSandbox?.readWritePaths ?? [])],
+      readOnlyPaths: [...(options.nativeSandbox?.readOnlyPaths ?? [])],
+    };
     this.isolation = requestedIsolation;
     this._instructionsOverride = options.instructions;
   }
