@@ -26,6 +26,7 @@ const mastra = new Mastra({
         level: 'debug',
         excludePaths: ['/health'],
         includeHeaders: true,
+        includeQueryParams: true,
         redactHeaders: ['authorization', 'cookie'],
       },
     },
