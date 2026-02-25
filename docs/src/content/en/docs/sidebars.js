@@ -672,40 +672,6 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: 'Mastra Code',
-      customProps: {
-        tags: ['new'],
-      },
-      items: [
-        {
-          type: 'doc',
-          id: 'mastra-code/overview',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'mastra-code/modes',
-          label: 'Modes',
-        },
-        {
-          type: 'doc',
-          id: 'mastra-code/tools',
-          label: 'Tools',
-        },
-        {
-          type: 'doc',
-          id: 'mastra-code/configuration',
-          label: 'Configuration',
-        },
-        {
-          type: 'doc',
-          id: 'mastra-code/customization',
-          label: 'Customization',
-        },
-      ],
-    },
-    {
-      type: 'category',
       label: 'Build with AI',
       collapsed: true,
       items: [
