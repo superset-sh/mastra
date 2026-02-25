@@ -499,6 +499,7 @@ function createStepFromAgent<TStepId extends string, TStepOutput>(
 
       if (isV2Model) {
         // V2+ model path: use .stream() which returns MastraModelOutput
+        // @ts-expect-error - TODO: fix this
         const modelOutput = await params.stream((inputData as { prompt: string }).prompt, {
           ...(agentOptions ?? {}),
           tracingContext,

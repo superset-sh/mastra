@@ -5,6 +5,7 @@ import { parseMemoryRequestContext } from '../../memory';
 import type { MastraDBMessage, MemoryConfigInternal } from '../../memory';
 import type { RequestContext } from '../../request-context';
 import type { MemoryStorage } from '../../storage';
+import { generateEmptyFromSchema } from '../../utils';
 
 export interface WorkingMemoryTemplate {
   format: 'markdown' | 'json';
@@ -166,7 +167,8 @@ export class WorkingMemory implements Processor {
         }
         return empty;
       }
-      return null;
+
+      return generateEmptyFromSchema(schema);
     } catch {
       return null;
     }

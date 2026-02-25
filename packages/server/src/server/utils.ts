@@ -1,22 +1,21 @@
 import type { Mastra } from '@mastra/core';
 import type { SystemMessage } from '@mastra/core/llm';
 import type { StepWithComponent, Workflow, WorkflowInfo } from '@mastra/core/workflows';
-import { toStandardSchema } from '@mastra/schema-compat/schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '@mastra/schema-compat/schema';
 import type { PublicSchema } from '@mastra/schema-compat/schema';
-// JSONSchema7 type - compatible with json-schema types
-type JSONSchema7 = Record<string, unknown>;
+
 import { stringify } from 'superjson';
 
 /**
  * Convert any PublicSchema to a JSON Schema.
  * Uses toStandardSchema to handle all schema types (Zod v3/v4, AI SDK Schema, JSON Schema).
  */
-function schemaToJsonSchema(schema: PublicSchema<unknown> | undefined): JSONSchema7 | undefined {
+function schemaToJsonSchema(schema: PublicSchema<unknown> | undefined) {
   if (!schema) return undefined;
 
   // Convert any PublicSchema to StandardSchemaWithJSON, then extract JSON Schema
   const standardSchema = toStandardSchema(schema);
-  return standardSchema['~standard'].jsonSchema.output({ target: 'draft-07' }) as JSONSchema7;
+  return standardSchemaToJSONSchema(standardSchema);
 }
 
 /**
@@ -57,7 +56,7 @@ function looksLikeProcessorStepSchema(schema: PublicSchema<unknown> | undefined)
   if (!schema) return false;
 
   try {
-    const jsonSchema = schemaToJsonSchema(schema) as Record<string, unknown> | undefined;
+    const jsonSchema = standardSchemaToJSONSchema(toStandardSchema(schema)) as Record<string, unknown> | undefined;
     if (!jsonSchema) return false;
 
     // Check for discriminated union pattern: anyOf/oneOf with phase discriminator

@@ -9,6 +9,7 @@ import {
   applyCompatLayer,
   convertZodSchemaToAISDKSchema,
 } from '@mastra/schema-compat';
+import type { StandardSchemaWithJSON } from '@mastra/schema-compat';
 import { z } from 'zod/v4';
 import { MastraBase } from '../../base';
 import { ErrorCategory, MastraError, ErrorDomain } from '../../error';
@@ -57,6 +58,7 @@ export class CoreToolBuilder extends MastraBase {
     this.originalTool = input.originalTool;
     this.options = input.options;
     this.logType = input.logType;
+
     if (
       !isVercelTool(this.originalTool) &&
       (input.autoResumeSuspendedTools ||
@@ -69,6 +71,8 @@ export class CoreToolBuilder extends MastraBase {
       if (!schema) {
         schema = z.object({});
       }
+
+      // TODO FIGURE OUT standard schema handling here
       if (isZodObject(schema)) {
         this.originalTool.inputSchema = schema.extend({
           suspendedToolRunId: z.string().describe('The runId of the suspended tool').nullable().optional().default(''),
@@ -102,6 +106,10 @@ export class CoreToolBuilder extends MastraBase {
     // For Mastra tools, inputSchema might also be a function
     let schema = this.originalTool.inputSchema;
 
+    if (isStandardSchemaWithJSON(schema)) {
+      return schema;
+    }
+
     // If schema is a function, call it to get the actual schema
     if (typeof schema === 'function') {
       schema = schema();
@@ -114,6 +122,10 @@ export class CoreToolBuilder extends MastraBase {
     if ('outputSchema' in this.originalTool) {
       let schema = this.originalTool.outputSchema;
 
+      if (isStandardSchemaWithJSON(schema)) {
+        return schema;
+      }
+
       // If schema is a function, call it to get the actual schema
       if (typeof schema === 'function') {
         schema = schema();
@@ -121,6 +133,7 @@ export class CoreToolBuilder extends MastraBase {
 
       return schema;
     }
+
     return null;
   };
 
@@ -188,7 +201,7 @@ export class CoreToolBuilder extends MastraBase {
         } else if (isStandardSchemaWithJSON(parameters)) {
           // StandardSchemaWithJSON - extract the JSON schema and wrap it
           // Use input since parameters represent tool input
-          const jsonSchema = standardSchemaToJSONSchema(parameters, { io: 'input' });
+          const jsonSchema = standardSchemaToJSONSchema(parameters, { io: 'output' });
           processedParameters = { jsonSchema };
         } else {
           // Assume Zod schema - convert to AI SDK Schema
@@ -265,7 +278,7 @@ export class CoreToolBuilder extends MastraBase {
     tool: ToolToConvert,
     options: ToolOptions,
     logType?: 'tool' | 'toolset' | 'client-tool',
-    processedSchema?: z.ZodTypeAny,
+    processedSchema?: StandardSchemaWithJSON,
   ) {
     // don't add memory, mastra, or tracing context to logging (tracingContext may contain sensitive observability credentials)
     const {
@@ -575,7 +588,6 @@ export class CoreToolBuilder extends MastraBase {
     if (providerTool) {
       return providerTool;
     }
-
     const model = this.options.model;
 
     const schemaCompatLayers = [];
@@ -601,50 +613,52 @@ export class CoreToolBuilder extends MastraBase {
       );
     }
 
-    // Apply schema compatibility to get both the transformed Zod schema (for validation)
-    // and the AI SDK Schema (for the LLM)
-    // Using 'any' here because processZodType returns different Zod types (v3/v4)
-    // that are not directly compatible, and the schema may come from various sources
-    let processedZodSchema: any;
-    let processedSchema;
+    let processedInputSchema: any;
 
     const originalSchema = this.getParameters();
 
     // Find the first applicable compatibility layer
     const applicableLayer = schemaCompatLayers.find(layer => layer.shouldApply());
-
-    if (applicableLayer && originalSchema) {
-      // Get the transformed Zod schema (with constraints removed/modified)
-      processedZodSchema = applicableLayer.processZodType(originalSchema) as z.ZodTypeAny;
-      // Convert to AI SDK Schema for the LLM
-      processedSchema = applyCompatLayer({
-        schema: originalSchema,
-        compatLayers: schemaCompatLayers,
-        mode: 'aiSdkSchema',
-      });
-    } else if (originalSchema) {
-      // No compatibility layer applies, use original schema
-      processedZodSchema = originalSchema;
-      processedSchema = applyCompatLayer({
-        schema: originalSchema,
-        compatLayers: schemaCompatLayers,
-        mode: 'aiSdkSchema',
-      });
+    if (isStandardSchemaWithJSON(originalSchema)) {
+      if (applicableLayer) {
+        processedInputSchema = applicableLayer.toJSONSchema(originalSchema as any);
+      } else {
+        processedInputSchema = standardSchemaToJSONSchema(originalSchema, { io: 'output' });
+      }
     } else {
-      // No schema to process, set to undefined
-      processedZodSchema = undefined;
-      processedSchema = undefined;
+      if (applicableLayer && originalSchema) {
+        // Get the transformed Zod schema (with constraints removed/modified)
+        processedInputSchema = applicableLayer.processZodType(originalSchema) as z.ZodTypeAny;
+        // Convert to AI SDK Schema for the LLM
+        processedInputSchema = applyCompatLayer({
+          schema: processedInputSchema,
+          compatLayers: schemaCompatLayers,
+          mode: 'aiSdkSchema',
+        });
+      } else if (originalSchema) {
+        processedInputSchema = applyCompatLayer({
+          schema: originalSchema,
+          compatLayers: schemaCompatLayers,
+          mode: 'aiSdkSchema',
+        });
+      } else {
+        processedInputSchema = undefined;
+      }
     }
 
+    const outputSchema = this.getOutputSchema();
     let processedOutputSchema;
 
-    if (this.getOutputSchema()) {
-      // Don't add any compat layers to outputSchema since it's never sent to the LLM
-      processedOutputSchema = applyCompatLayer({
-        schema: this.getOutputSchema(),
-        compatLayers: [],
-        mode: 'aiSdkSchema',
-      });
+    if (outputSchema) {
+      if (isStandardSchemaWithJSON(outputSchema)) {
+        processedOutputSchema = standardSchemaToJSONSchema(outputSchema, { io: 'output' });
+      } else {
+        processedOutputSchema = applyCompatLayer({
+          schema: outputSchema,
+          compatLayers: [],
+          mode: 'aiSdkSchema',
+        });
+      }
     }
 
     // Map AI SDK's needsApproval to our requireApproval
@@ -675,7 +689,7 @@ export class CoreToolBuilder extends MastraBase {
             this.originalTool,
             { ...this.options, description: this.originalTool.description },
             this.logType,
-            processedZodSchema, // Pass the processed Zod schema for validation
+            toStandardSchema(processedInputSchema), // Pass the processed Zod schema for validation
           )
         : undefined,
     };
@@ -683,7 +697,7 @@ export class CoreToolBuilder extends MastraBase {
     return {
       ...definition,
       id: 'id' in this.originalTool ? this.originalTool.id : undefined,
-      parameters: processedSchema ?? convertZodSchemaToAISDKSchema(z.object({})),
+      parameters: processedInputSchema ?? convertZodSchemaToAISDKSchema(z.object({})),
       outputSchema: processedOutputSchema,
       providerOptions: 'providerOptions' in this.originalTool ? this.originalTool.providerOptions : undefined,
       mcp: 'mcp' in this.originalTool ? this.originalTool.mcp : undefined,

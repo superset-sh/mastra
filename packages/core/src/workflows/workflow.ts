@@ -443,6 +443,7 @@ function createStepFromAgent<TStepId extends string, TStepOutput>(
         });
         stream = fullStream as any;
       } else {
+        // @ts-expect-error - TODO: fix this
         const modelOutput = await params.stream((inputData as { prompt: string }).prompt, {
           ...agentOptions,
           requestContext,

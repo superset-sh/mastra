@@ -3,7 +3,14 @@ import { z } from 'zod';
 import type { ZodType as ZodTypeV3, ZodObject as ZodObjectV3 } from 'zod/v3';
 import type { ZodType as ZodTypeV4, ZodObject as ZodObjectV4 } from 'zod/v4';
 import type { Targets } from 'zod-to-json-schema';
-import { isArraySchema, isNumberSchema, isObjectSchema, isStringSchema, isUnionSchema } from '../json-schema/utils';
+import {
+  isArraySchema,
+  isNumberSchema,
+  isObjectSchema,
+  isStringSchema,
+  isUnionSchema,
+  isNullableSchema,
+} from '../json-schema/utils';
 import { SchemaCompatLayer } from '../schema-compatibility';
 import type { ZodType } from '../schema.types';
 import type { ModelInformation } from '../types';
@@ -120,6 +127,20 @@ export class OpenAIReasoningSchemaCompatLayer extends SchemaCompatLayer {
 
   preProcessJSONNode(schema: JSONSchema7, _parentSchema?: JSONSchema7): void {
     // Process based on schema type
+    if (isNullableSchema(schema)) {
+      if (schema.anyOf && Array.isArray(schema.anyOf)) {
+        // @ts-expect-error it's alright
+        schema.type = schema.anyOf.find(s => s.type !== 'null')?.type;
+        delete schema.anyOf;
+      } else {
+        // @ts-expect-error it's alright
+        schema.type = schema.type.find(type => type !== 'null');
+      }
+      // @ts-expect-error it's alright
+      schema.nullable = true;
+    }
+
+    // Process based on schema type
     if (isObjectSchema(schema)) {
       this.defaultObjectHandler(schema);
     } else if (isArraySchema(schema)) {
@@ -139,15 +160,10 @@ export class OpenAIReasoningSchemaCompatLayer extends SchemaCompatLayer {
 
     // Fix v4-specific issues in post-processing
     if (isObjectSchema(schema)) {
-      // OpenAI reasoning models don't support passthrough, but we still need to fix empty additionalProperties
-      if (
-        schema.additionalProperties !== undefined &&
-        typeof schema.additionalProperties === 'object' &&
-        schema.additionalProperties !== null &&
-        Object.keys(schema.additionalProperties).length === 0
-      ) {
-        // For reasoning models, set to false (strict mode)
-        schema.additionalProperties = false;
+      // force all keys to be required
+      const keys = Object.keys(schema.properties || {});
+      if (keys.length) {
+        schema.required = keys;
       }
 
       // Fix record schemas: remove propertyNames (v4 adds this but it's not needed)

@@ -2,7 +2,7 @@ import type { MemoryConfigInternal } from '@mastra/core/memory';
 import { isStandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
 import type { PublicSchema, StandardSchemaWithJSON } from '@mastra/core/schema';
 import { createTool } from '@mastra/core/tools';
-import { convertSchemaToZod } from '@mastra/schema-compat';
+import { standardSchemaToJSONSchema } from '@mastra/schema-compat/schema';
 import { z } from 'zod';
 
 /**
@@ -77,12 +77,18 @@ export const updateWorkingMemoryTool = (memoryConfig?: MemoryConfigInternal) => 
 
     // Get JSON schema using .output() since this describes the structure the LLM should produce,
     // then convert to Zod for runtime validation of the tool's inputSchema
-    const jsonSchema = standardSchema['~standard'].jsonSchema.output({ target: 'draft-07' }) as any;
-    const memorySchema = convertSchemaToZod(jsonSchema).describe(`The JSON formatted working memory content to store.`);
+    const jsonSchema = standardSchemaToJSONSchema(standardSchema, { io: 'input' });
+    delete jsonSchema.$schema;
 
-    inputSchema = z.object({
-      memory: memorySchema,
-    }) as PublicSchema<{ memory: any }>;
+    inputSchema = toStandardSchema({
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      type: 'object',
+      description: 'The JSON formatted working memory content to store.',
+      properties: {
+        memory: jsonSchema,
+      },
+      required: ['memory'],
+    });
   }
 
   // For schema-based working memory, we use merge semantics

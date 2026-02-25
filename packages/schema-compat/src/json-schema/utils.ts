@@ -59,6 +59,24 @@ export function isUnionSchema(schema: JSONSchema7): boolean {
 }
 
 /**
+ * Check if a JSON Schema is an enum type
+ */
+export function isEnumSchema(schema: JSONSchema7): boolean {
+  return Array.isArray(schema.enum) && schema.enum.length > 0;
+}
+
+/**
+ * Check if a JSON Schema is a nullable type
+ */
+export function isNullableSchema(schema: JSONSchema7): boolean {
+  if (schema.type) {
+    return false;
+  }
+
+  return !!schema.anyOf?.some(s => (s as JSONSchema7 & { type: string }).type === 'null');
+}
+
+/**
  * Check if a JSON Schema has number constraints (minimum, maximum, etc.)
  */
 export function hasNumberConstraints(schema: JSONSchema7): boolean {

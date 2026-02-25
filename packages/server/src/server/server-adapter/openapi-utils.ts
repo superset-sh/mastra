@@ -2,6 +2,8 @@ import type { PublicSchema } from '@mastra/core/schema';
 import { toStandardSchema } from '@mastra/core/schema';
 import type { ApiRoute } from '@mastra/core/server';
 import { zodToJsonSchema } from '@mastra/core/utils/zod-to-json';
+import { standardSchemaToJSONSchema } from '@mastra/schema-compat';
+import type { JSONSchema7 } from '@mastra/schema-compat';
 import type { ServerRoute } from './routes';
 
 interface RouteOpenAPIConfig {
@@ -115,9 +117,10 @@ export function generateRouteOpenAPI({
 /**
  * Helper to convert any PublicSchema to JSON Schema for OpenAPI
  */
-function schemaToJsonSchema(schema: PublicSchema<unknown>): Record<string, unknown> {
+function schemaToJsonSchema(schema: PublicSchema<unknown>): JSONSchema7 {
   const standardSchema = toStandardSchema(schema);
-  return standardSchema['~standard'].jsonSchema.output({ target: 'draft-07' }) as Record<string, unknown>;
+
+  return standardSchemaToJSONSchema(standardSchema);
 }
 
 /**

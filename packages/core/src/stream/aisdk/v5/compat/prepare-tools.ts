@@ -121,8 +121,13 @@ export function prepareToolsAndToolChoice<TOOLS extends Record<string, Tool>>({
               // Convert tool input schema to JSON Schema
               let parameters;
               if (sdkTool.inputSchema) {
-                // Use standardSchemaToJSONSchema directly for consistent draft-07 output
-                if (isStandardSchemaWithJSON(sdkTool.inputSchema)) {
+                if (
+                  '$schema' in sdkTool.inputSchema &&
+                  typeof sdkTool.inputSchema.$schema === 'string' &&
+                  sdkTool.inputSchema.$schema.startsWith('http://json-schema.org/')
+                ) {
+                  parameters = sdkTool.inputSchema;
+                } else if (isStandardSchemaWithJSON(sdkTool.inputSchema)) {
                   parameters = standardSchemaToJSONSchema(sdkTool.inputSchema, {
                     io: 'input',
                     target: 'draft-07',

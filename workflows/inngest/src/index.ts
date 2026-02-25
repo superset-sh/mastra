@@ -362,21 +362,29 @@ function createStepFromAgent<TStepId extends string, TStepOutput>(
         });
         stream = fullStream as any;
       } else {
-        const modelOutput = await params.stream((inputData as { prompt: string }).prompt, {
-          ...(agentOptions ?? {}),
+        const { structuredOutput, ...restAgentOptions } = agentOptions ?? {};
+        const baseOptions = {
+          ...restAgentOptions,
           requestContext,
           tracingContext,
-          onFinish: result => {
+          onFinish: (result: any) => {
             // Capture structured output if available
             const resultWithObject = result as typeof result & { object?: unknown };
-            if (agentOptions?.structuredOutput?.schema && resultWithObject.object) {
+            if (structuredOutput?.schema && resultWithObject.object) {
               structuredResult = resultWithObject.object;
             }
             streamPromise.resolve(result.text);
             void agentOptions?.onFinish?.(result);
           },
           abortSignal,
-        });
+        };
+
+        const modelOutput = structuredOutput
+          ? await params.stream<any>((inputData as { prompt: string }).prompt, {
+              ...baseOptions,
+              structuredOutput,
+            } as any)
+          : await params.stream<any>((inputData as { prompt: string }).prompt, baseOptions as any);
 
         stream = modelOutput.fullStream;
       }

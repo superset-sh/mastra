@@ -16,20 +16,6 @@ import type {
   ObservationalMemoryOptions,
   MemoryConfig,
 } from '@mastra/core/memory';
-
-/**
- * Normalize a `boolean | object` observational memory config.
- * Returns the options object if enabled, undefined if disabled.
- * Inlined here to avoid importing runtime exports that don't exist on older @mastra/core versions.
- */
-function normalizeObservationalMemoryConfig(
-  config: boolean | ObservationalMemoryOptions | undefined,
-): ObservationalMemoryOptions | undefined {
-  if (config === true) return { model: 'google/gemini-2.5-flash' };
-  if (config === false || config === undefined) return undefined;
-  if (typeof config === 'object' && (config as ObservationalMemoryOptions).enabled === false) return undefined;
-  return config as ObservationalMemoryOptions;
-}
 import type {
   InputProcessor,
   InputProcessorOrWorkflow,
@@ -57,6 +43,20 @@ import {
   __experimental_updateWorkingMemoryToolVNext,
   deepMergeWorkingMemory,
 } from './tools/working-memory';
+
+/**
+ * Normalize a `boolean | object` observational memory config.
+ * Returns the options object if enabled, undefined if disabled.
+ * Inlined here to avoid importing runtime exports that don't exist on older @mastra/core versions.
+ */
+function normalizeObservationalMemoryConfig(
+  config: boolean | ObservationalMemoryOptions | undefined,
+): ObservationalMemoryOptions | undefined {
+  if (config === true) return { model: 'google/gemini-2.5-flash' };
+  if (config === false || config === undefined) return undefined;
+  if (typeof config === 'object' && (config as ObservationalMemoryOptions).enabled === false) return undefined;
+  return config as ObservationalMemoryOptions;
+}
 
 // Re-export for testing purposes
 export { deepMergeWorkingMemory };

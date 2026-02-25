@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { TextPart, UIMessage } from '@internal/ai-sdk-v4';
-import type { ModelInformation } from '@mastra/schema-compat';
+import type { ModelInformation, StandardSchemaWithJSON } from '@mastra/schema-compat';
 import { applyOpenAICompatTransforms } from '@mastra/schema-compat';
 import type { JSONSchema7 } from 'json-schema';
 import type { ZodSchema, z as z3 } from 'zod/v3';
@@ -51,6 +51,7 @@ import type { ProcessorState } from '../processors/runner';
 import { ProcessorRunner } from '../processors/runner';
 import { RequestContext, MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY } from '../request-context';
 import { toStandardSchema } from '../schema/schema';
+import type { InferStandardSchemaOutput } from '../schema/schema';
 import { standardSchemaToJSONSchema } from '../schema/standard-schema';
 import type { MastraAgentNetworkStream } from '../stream';
 import type { FullOutput, MastraModelOutput } from '../stream/base/output';
@@ -73,7 +74,6 @@ import type {
   InnerAgentExecutionOptions,
   MultiPrimitiveExecutionOptions,
   NetworkOptions,
-  PublicAgentExecutionOptions,
 } from './agent.types';
 import { MessageList } from './message-list';
 import type { MessageInput, MessageListInput, UIMessageWithMetadata, MastraDBMessage } from './message-list';
@@ -3750,29 +3750,35 @@ export class Agent<
   async declineNetworkToolCall(options: Omit<MultiPrimitiveExecutionOptions, 'runId'> & { runId: string }) {
     return this.resumeNetwork({ approved: false }, options);
   }
-  async generate(
+
+  async generate<
+    OUTPUT extends StandardSchemaWithJSON<any, any>,
+    T extends InferStandardSchemaOutput<OUTPUT> = InferStandardSchemaOutput<OUTPUT>,
+  >(
     messages: MessageListInput,
-    options?: PublicAgentExecutionOptions<TOutput>,
-  ): Promise<FullOutput<TOutput>>;
+    options: AgentExecutionOptionsBase<T> & {
+      structuredOutput: PublicStructuredOutputOptions<T>;
+    },
+  ): Promise<FullOutput<T>>;
   async generate<OUTPUT extends {}>(
     messages: MessageListInput,
     options: AgentExecutionOptionsBase<OUTPUT> & {
       structuredOutput: PublicStructuredOutputOptions<OUTPUT>;
     },
   ): Promise<FullOutput<OUTPUT>>;
-  // Catch-all overload to handle conditional types when OUTPUT is generic
-  async generate<OUTPUT>(
-    messages: MessageListInput,
-    options?: AgentExecutionOptionsBase<any> & {
-      structuredOutput?: PublicStructuredOutputOptions<any>;
-    },
-  ): Promise<FullOutput<OUTPUT>>;
   async generate(
     messages: MessageListInput,
+    options: AgentExecutionOptionsBase<unknown> & {
+      structuredOutput?: never;
+    },
+  ): Promise<FullOutput<TOutput>>;
+  async generate<OUTPUT = TOutput>(messages: MessageListInput): Promise<FullOutput<OUTPUT>>;
+  async generate<OUTPUT = TOutput>(
+    messages: MessageListInput,
     options?: AgentExecutionOptionsBase<any> & {
       structuredOutput?: PublicStructuredOutputOptions<any>;
     },
-  ): Promise<FullOutput<any>> {
+  ): Promise<FullOutput<OUTPUT>> {
     // Validate request context if schema is provided
     await this.#validateRequestContext(options?.requestContext);
 
@@ -3861,19 +3867,28 @@ export class Agent<
     return fullOutput;
   }
 
+  async stream<
+    OUTPUT extends StandardSchemaWithJSON<any, any>,
+    T extends InferStandardSchemaOutput<OUTPUT> = InferStandardSchemaOutput<OUTPUT>,
+  >(
+    messages: MessageListInput,
+    streamOptions: AgentExecutionOptionsBase<T> & {
+      structuredOutput: PublicStructuredOutputOptions<T>;
+    },
+  ): Promise<MastraModelOutput<T>>;
   async stream<OUTPUT extends {}>(
     messages: MessageListInput,
     streamOptions: AgentExecutionOptionsBase<OUTPUT> & {
       structuredOutput: PublicStructuredOutputOptions<OUTPUT>;
     },
   ): Promise<MastraModelOutput<OUTPUT>>;
-  async stream<OUTPUT>(
+  async stream(
     messages: MessageListInput,
-    streamOptions: AgentExecutionOptionsBase<any> & {
-      structuredOutput?: PublicStructuredOutputOptions<any>;
+    streamOptions: AgentExecutionOptionsBase<unknown> & {
+      structuredOutput?: never;
     },
-  ): Promise<MastraModelOutput<OUTPUT>>;
-  async stream(messages: MessageListInput, streamOptions?: PublicAgentExecutionOptions): Promise<MastraModelOutput>;
+  ): Promise<MastraModelOutput<TOutput>>;
+  async stream(messages: MessageListInput): Promise<MastraModelOutput<TOutput>>;
   async stream<OUTPUT = TOutput>(
     messages: MessageListInput,
     streamOptions?: AgentExecutionOptionsBase<any> & {
@@ -3973,6 +3988,16 @@ export class Agent<
    * );
    * ```
    */
+  async resumeStream<
+    OUTPUT extends StandardSchemaWithJSON<any, any>,
+    T extends InferStandardSchemaOutput<OUTPUT> = InferStandardSchemaOutput<OUTPUT>,
+  >(
+    resumeData: any,
+    streamOptions: AgentExecutionOptionsBase<T> & {
+      structuredOutput: PublicStructuredOutputOptions<T>;
+      toolCallId?: string;
+    },
+  ): Promise<MastraModelOutput<T>>;
   async resumeStream<OUTPUT extends {}>(
     resumeData: any,
     streamOptions: AgentExecutionOptionsBase<OUTPUT> & {
@@ -3980,19 +4005,15 @@ export class Agent<
       toolCallId?: string;
     },
   ): Promise<MastraModelOutput<OUTPUT>>;
-  async resumeStream<OUTPUT>(
-    resumeData: any,
-    streamOptions: AgentExecutionOptionsBase<any> & {
-      structuredOutput?: PublicStructuredOutputOptions<any>;
-      toolCallId?: string;
-    },
-  ): Promise<MastraModelOutput<OUTPUT>>;
   async resumeStream(
     resumeData: any,
-    streamOptions?: PublicAgentExecutionOptions & { toolCallId?: string },
-  ): Promise<MastraModelOutput>;
+    streamOptions: AgentExecutionOptionsBase<unknown> & {
+      structuredOutput?: never;
+      toolCallId?: string;
+    },
+  ): Promise<MastraModelOutput<TOutput>>;
   async resumeStream<OUTPUT = TOutput>(
-    resumeData: MessageListInput,
+    resumeData: any,
     streamOptions?: AgentExecutionOptionsBase<any> & {
       structuredOutput?: PublicStructuredOutputOptions<any>;
       toolCallId?: string;
@@ -4088,13 +4109,37 @@ export class Agent<
    * );
    * ```
    */
-  async resumeGenerate<OUTPUT = undefined>(
+  async resumeGenerate<
+    OUTPUT extends StandardSchemaWithJSON<any, any>,
+    T extends InferStandardSchemaOutput<OUTPUT> = InferStandardSchemaOutput<OUTPUT>,
+  >(
+    resumeData: any,
+    options: AgentExecutionOptionsBase<T> & {
+      structuredOutput: PublicStructuredOutputOptions<T>;
+      toolCallId?: string;
+    },
+  ): Promise<FullOutput<T>>;
+  async resumeGenerate<OUTPUT extends {}>(
+    resumeData: any,
+    options: AgentExecutionOptionsBase<OUTPUT> & {
+      structuredOutput: PublicStructuredOutputOptions<OUTPUT>;
+      toolCallId?: string;
+    },
+  ): Promise<FullOutput<OUTPUT>>;
+  async resumeGenerate(
+    resumeData: any,
+    options: AgentExecutionOptionsBase<unknown> & {
+      structuredOutput?: never;
+      toolCallId?: string;
+    },
+  ): Promise<FullOutput<TOutput>>;
+  async resumeGenerate<OUTPUT = TOutput>(
     resumeData: any,
     options?: AgentExecutionOptionsBase<any> & {
       structuredOutput?: PublicStructuredOutputOptions<any>;
       toolCallId?: string;
     },
-  ): Promise<Awaited<ReturnType<MastraModelOutput<OUTPUT>['getFullOutput']>>> {
+  ): Promise<FullOutput<OUTPUT>> {
     const defaultOptions = await this.getDefaultOptions({
       requestContext: options?.requestContext,
     });
@@ -4206,6 +4251,7 @@ export class Agent<
   async approveToolCall<OUTPUT = undefined>(
     options: AgentExecutionOptions<OUTPUT> & { runId: string; toolCallId?: string },
   ): Promise<MastraModelOutput<OUTPUT>> {
+    // @ts-expect-error - the types here are wrong
     return this.resumeStream({ approved: true }, options);
   }
 
@@ -4227,6 +4273,7 @@ export class Agent<
   async declineToolCall<OUTPUT = undefined>(
     options: AgentExecutionOptions<OUTPUT> & { runId: string; toolCallId?: string },
   ): Promise<MastraModelOutput<OUTPUT>> {
+    // @ts-expect-error - the types here are wrong
     return this.resumeStream({ approved: false }, options);
   }
 
@@ -4249,6 +4296,7 @@ export class Agent<
   async approveToolCallGenerate<OUTPUT = undefined>(
     options: AgentExecutionOptions<OUTPUT> & { runId: string; toolCallId?: string },
   ): Promise<Awaited<ReturnType<MastraModelOutput<OUTPUT>['getFullOutput']>>> {
+    // @ts-expect-error - the types here are wrong
     return this.resumeGenerate({ approved: true }, options);
   }
 
@@ -4271,6 +4319,7 @@ export class Agent<
   async declineToolCallGenerate<OUTPUT = undefined>(
     options: AgentExecutionOptions<OUTPUT> & { runId: string; toolCallId?: string },
   ): Promise<Awaited<ReturnType<MastraModelOutput<OUTPUT>['getFullOutput']>>> {
+    // @ts-expect-error - the types here are wrong
     return this.resumeGenerate({ approved: false }, options);
   }
 

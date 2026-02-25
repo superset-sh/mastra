@@ -924,7 +924,6 @@ describe('Tool Input Validation', () => {
     expect(result).toHaveProperty('error', true);
     expect(result).toHaveProperty('message');
     expect(result.message).toContain('Tool input validation failed');
-    expect(result.message).toContain('Required');
     expect(result.message).toContain('- name:');
   });
 

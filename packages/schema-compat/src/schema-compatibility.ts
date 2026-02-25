@@ -384,24 +384,26 @@ export abstract class SchemaCompatLayer {
       constraints.push(`maximum length ${schema.maxLength}`);
       delete schema.maxLength;
     }
-    if (schema.pattern !== undefined) {
-      // Don't add pattern to constraints - just remove it
-      delete schema.pattern;
+
+    switch (schema.format) {
+      case 'email':
+      case 'emoji':
+      case 'uri':
+      case 'uuid':
+      case 'date-time':
+      case 'date':
+      case 'time': {
+        constraints.push(`a valid ${schema.format}`);
+
+        delete schema.pattern;
+        delete schema.format;
+        break;
+      }
     }
-    if (schema.format !== undefined) {
-      // Convert format to human-readable constraint text
-      const formatMap: Record<string, string> = {
-        email: 'a valid email',
-        uri: 'a valid url',
-        url: 'a valid url',
-        uuid: 'a valid uuid',
-        'date-time': 'a valid date-time',
-        date: 'a valid date',
-        time: 'a valid time',
-      };
-      const formatText = formatMap[schema.format] || `format: ${schema.format}`;
-      constraints.push(formatText);
-      delete schema.format;
+
+    if (constraints.length === 0 && schema.pattern !== undefined) {
+      constraints.push(`input must match this regex ${schema.pattern}`);
+      delete schema.pattern;
     }
 
     if (constraints.length) {
@@ -456,20 +458,9 @@ export abstract class SchemaCompatLayer {
    * Processes union schemas and can convert anyOf patterns to type arrays for simple primitives.
    */
   protected defaultUnionHandler(schema: JSONSchema7): JSONSchema7 {
-    if (schema.anyOf && Array.isArray(schema.anyOf)) {
-      // Check if all items in anyOf are simple primitive types (only have a 'type' property)
-      const allSimplePrimitives = schema.anyOf.every((s: any) => {
-        if (typeof s !== 'object' || s === null) return false;
-        const keys = Object.keys(s);
-        return keys.length === 1 && keys[0] === 'type' && typeof s.type === 'string';
-      });
-
-      if (allSimplePrimitives) {
-        // Convert anyOf: [{type: "string"}, {type: "number"}] to type: ["string", "number"]
-        const types = schema.anyOf.map((s: any) => s.type);
-        delete schema.anyOf;
-        schema.type = types as JSONSchema7['type'];
-      }
+    if (Array.isArray(schema.type)) {
+      schema.anyOf = schema.type.map(type => ({ type }));
+      delete schema.type;
     }
 
     return schema;

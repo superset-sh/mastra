@@ -23,6 +23,11 @@ function jsonSchemaOverride(ctx: { zodSchema: unknown; jsonSchema: Record<string
       ctx.jsonSchema.format = 'date-time';
     }
   }
+
+  if (ctx.jsonSchema.type === 'object') {
+    ctx.jsonSchema.additionalProperties = false;
+  }
+
   return undefined;
 }
 /**
@@ -259,11 +264,13 @@ export function standardSchemaToJSONSchema(
 ): JSONSchema7 {
   const { target = 'draft-07', io = 'output', override = JSON_SCHEMA_LIBRARY_OPTIONS.override } = options;
   const jsonSchemaFn = schema['~standard'].jsonSchema[io];
-  return jsonSchemaFn({
+  const jsonSchema = jsonSchemaFn({
     target,
     libraryOptions: {
       ...JSON_SCHEMA_LIBRARY_OPTIONS,
       override,
     },
   }) as JSONSchema7;
+
+  return jsonSchema;
 }
