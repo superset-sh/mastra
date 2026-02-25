@@ -34,9 +34,7 @@ export const isLocalUrl = (url?: string): boolean => {
 const createMastraClient = (baseUrl?: string, mastraClientHeaders: Record<string, string> = {}, apiPrefix?: string) => {
   return new MastraClient({
     baseUrl: baseUrl || '',
-    headers: isLocalUrl(baseUrl)
-      ? { ...mastraClientHeaders, 'x-mastra-dev-playground': 'true' }
-      : mastraClientHeaders,
+    headers: isLocalUrl(baseUrl) ? { ...mastraClientHeaders, 'x-mastra-dev-playground': 'true' } : mastraClientHeaders,
     apiPrefix,
   });
 };
