@@ -844,9 +844,6 @@ describe('LocalSandbox', () => {
     afterEach(async () => {
       vi.restoreAllMocks();
       try {
-        // Clear active mount paths so destroy doesn't try to unmount
-        (mountSandbox as any)._activeMountPaths.clear();
-        mountSandbox.mounts.clear();
         await mountSandbox._destroy();
       } catch {
         // Ignore
@@ -895,6 +892,7 @@ describe('LocalSandbox', () => {
 
       await expect(mountSandbox.mount(mockFs as any, 'relative/path')).rejects.toThrow('Invalid mount path');
       await expect(mountSandbox.mount(mockFs as any, '/tmp/bad path')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs as any, '/')).rejects.toThrow('Invalid mount path');
     });
 
     it('should reject mount paths with path traversal segments', async () => {

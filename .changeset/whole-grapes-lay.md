@@ -3,8 +3,8 @@
 ---
 
 **Added** local symlink mounts in `LocalSandbox` so sandboxed commands can access locally-mounted filesystem paths.
-**Improved** mount path resolution under the sandbox working directory and cleanup on stop/destroy.
-**Improved** workspace instructions to show the resolved mount location.
+**Improved** mounted paths so commands resolve consistently in local sandboxes.
+**Improved** workspace instructions so developers can quickly find mounted data paths.
 
 **Why:** Local sandboxes can now run commands against locally-mounted data without manual path workarounds.
 

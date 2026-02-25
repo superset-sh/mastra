@@ -46,6 +46,9 @@ function validateMountPath(mountPath: string): void {
     );
   }
   const segments = mountPath.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    throw new Error(`Invalid mount path: ${mountPath}. Root path "/" is not allowed.`);
+  }
   if (segments.some(seg => seg === '.' || seg === '..')) {
     throw new Error(`Invalid mount path: ${mountPath}. Path segments cannot be "." or "..".`);
   }
@@ -401,6 +404,7 @@ export class LocalSandbox extends MastraSandbox {
       );
       this.mounts.set(mountPath, { filesystem, state: 'mounted', config });
       this._activeMountPaths.add(mountPath);
+      this.addMountPathToIsolation(hostPath);
       return { success: true, mountPath };
     } else if (existingMount === 'foreign') {
       // Something is already mounted/symlinked here but we didn't create it — refuse to touch it
@@ -460,6 +464,11 @@ export class LocalSandbox extends MastraSandbox {
           break;
         }
         default:
+          try {
+            await fs.rmdir(hostPath);
+          } catch {
+            // best-effort cleanup
+          }
           this.mounts.set(mountPath, {
             filesystem,
             state: 'unsupported',
