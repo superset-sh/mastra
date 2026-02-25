@@ -543,6 +543,28 @@ export function streamObjectTests({ loopFn, runId }: { loopFn: typeof loop; runI
                 role: 'assistant',
               },
             ],
+            dbMessages: [
+              {
+                id: expect.any(String),
+                createdAt: expect.any(Date),
+                content: {
+                  content: '{"content": "Hello, world!"}',
+                  format: 2,
+                  metadata: {
+                    structuredOutput: {
+                      content: 'Hello, world!',
+                    },
+                  },
+                  parts: [
+                    {
+                      text: '{"content": "Hello, world!"}',
+                      type: 'text',
+                    },
+                  ],
+                },
+                role: 'assistant',
+              },
+            ],
           };
 
           await convertAsyncIterableToArray(result.objectStream);
@@ -839,6 +861,28 @@ export function streamObjectTests({ loopFn, runId }: { loopFn: typeof loop; runI
               "reasoningText": undefined,
               "request": {},
               "response": {
+                "dbMessages": [
+                  {
+                    "content": {
+                      "content": "{ "content": "Hello, world!" }",
+                      "format": 2,
+                      "metadata": {
+                        "structuredOutput": {
+                          "content": "Hello, world!",
+                        },
+                      },
+                      "parts": [
+                        {
+                          "text": "{ "content": "Hello, world!" }",
+                          "type": "text",
+                        },
+                      ],
+                    },
+                    "createdAt": 2024-01-01T00:00:00.001Z,
+                    "id": "1234",
+                    "role": "assistant",
+                  },
+                ],
                 "headers": undefined,
                 "id": "id-0",
                 "messages": [
@@ -1057,6 +1101,23 @@ export function streamObjectTests({ loopFn, runId }: { loopFn: typeof loop; runI
               "reasoningText": undefined,
               "request": {},
               "response": {
+                "dbMessages": [
+                  {
+                    "content": {
+                      "content": "{ "invalid": "Hello, world!" }",
+                      "format": 2,
+                      "parts": [
+                        {
+                          "text": "{ "invalid": "Hello, world!" }",
+                          "type": "text",
+                        },
+                      ],
+                    },
+                    "createdAt": 2024-01-01T00:00:00.001Z,
+                    "id": "1234",
+                    "role": "assistant",
+                  },
+                ],
                 "headers": undefined,
                 "id": "id-0",
                 "messages": [
@@ -1265,6 +1326,23 @@ export function streamObjectTests({ loopFn, runId }: { loopFn: typeof loop; runI
               "reasoningText": undefined,
               "request": {},
               "response": {
+                "dbMessages": [
+                  {
+                    "content": {
+                      "content": "{ "invalid": "Hello, world!" }",
+                      "format": 2,
+                      "parts": [
+                        {
+                          "text": "{ "invalid": "Hello, world!" }",
+                          "type": "text",
+                        },
+                      ],
+                    },
+                    "createdAt": 2024-01-01T00:00:00.001Z,
+                    "id": "1234",
+                    "role": "assistant",
+                  },
+                ],
                 "headers": undefined,
                 "id": "id-0",
                 "messages": [
