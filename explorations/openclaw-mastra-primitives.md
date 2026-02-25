@@ -12,47 +12,50 @@ OpenClaw's architecture centers around a **Gateway** process that routes message
 
 | OpenClaw Concept | Mastra Primitive | Notes |
 |---|---|---|
-| Gateway (Control Plane) | `Mastra` class + Server adapter | Central orchestration hub |
-| Agent Runtime | `Agent` | LLM interaction with tools, memory, instructions |
-| Tools system | `Tool` / `createTool()` | Type-safe, schema-validated tools |
-| Plugins / Skills | MCP Servers + Toolsets | Extensible tool registration |
+| Gateway (Control Plane) + Agent Runtime | **`Harness`** | The single most important mapping. Harness is the orchestration layer for multi-mode agents with state, events, thread management, tool approvals, and display state. |
+| Agent Runtime (per-mode) | `Agent` | Individual agent personalities/capabilities wrapped by Harness modes |
+| Dependency injection / wiring | `Mastra` class | Registry that connects agents, tools, storage, memory |
+| Tools system + tool profiles | `Tool` / `createTool()` + Harness permission system | Type-safe tools with category-based allow/deny policies |
+| Plugins / Skills | MCP Servers + Toolsets | Extensible tool registration via open standard |
 | Memory (persistence) | `Memory` + `Storage` | Thread-based conversations, semantic recall, working memory |
-| Session management | Threads + Resources | Thread-per-session with resource-scoped state |
+| Session management | Harness threads + Resources | Thread-per-session with resource-scoped state, thread locking |
+| Queue modes (steer/followup/collect) | Harness `steer()` / `followUp()` | Built-in message queueing during active agent runs |
+| User interaction (questions, approvals) | Harness built-in tools (`ask_user`, `submit_plan`) | Pause execution, wait for user response |
+| Task tracking | Harness built-in tools (`task_write`, `task_check`) | Structured task lists with status tracking |
 | Multi-channel messaging | Custom tools + Input/Output Processors | Channel abstraction via processors |
-| Message queueing | Workflows (event-driven) | Step-based execution with suspend/resume |
-| Workspace / file system | `Workspace` | File storage and code execution |
-| Multi-agent delegation | Supervisor / Network patterns | Built-in multi-agent orchestration |
-| Configuration files (USER.md, IDENTITY.md) | `instructions` (dynamic) | Agent instructions, dynamically resolved |
-| Cron / scheduling | Workflow triggers | Event-driven workflow execution |
+| Workspace / file system | `Workspace` (via Harness) | File storage and code execution |
+| Multi-agent delegation | Harness subagents + Supervisor / Network patterns | Scoped subagents with constrained tools |
+| Configuration files (USER.md, IDENTITY.md) | `instructions` (dynamic) | Agent instructions, dynamically resolved per-request |
+| Display state / UI updates | Harness `DisplayState` + event system | Canonical state snapshot with 35+ event types |
+| Model switching | Harness `switchModel()` | Runtime model changes scoped to thread, mode, or global |
+| Cron / scheduling | Harness heartbeat handlers | Periodic background tasks |
+| Workflow orchestration | `Workflow` / `createWorkflow()` | Step-based execution with suspend/resume |
 
 ---
 
-## 1. The Gateway — `Mastra` Class as Control Plane
+## 1. The Gateway + Agent Runtime — `Harness` as the Orchestration Layer
 
-OpenClaw's Gateway is the central process through which all operations flow. It manages channel connections, routes messages, and orchestrates the agent runtime. In Mastra, the `Mastra` class fills this exact role — it's the dependency injection hub that wires together agents, tools, memory, storage, and server endpoints.
+OpenClaw's Gateway is the central process through which all operations flow: it manages channel connections, routes messages, orchestrates the agent runtime, handles message queueing (steer/followup/collect), manages sessions, and provides the control surface that UIs drive. In Mastra, the **`Harness`** primitive is the direct analog — it's the orchestration layer that wraps agents, manages threads, handles state, provides built-in interactive tools, and emits events for UI consumption.
+
+The Harness is the single most important mapping in this exploration. Where previous sections showed individual primitives (Agent, Tool, Memory), the Harness is what composes them into a coherent application — exactly what OpenClaw's Gateway does.
+
+### Harness as OpenClaw's Gateway
 
 ```typescript
-import { Mastra } from '@mastra/core';
+import { Harness } from '@mastra/core/harness';
 import { Memory } from '@mastra/memory';
 import { LibSQLStore } from '@mastra/libsql';
-import { PgVector } from '@mastra/pg-vector';
+import { z } from 'zod';
 
 const storage = new LibSQLStore({
   id: 'openclaw-storage',
   url: process.env.DATABASE_URL!,
 });
 
-const vectorStore = new PgVector({
-  connectionString: process.env.VECTOR_DB_URL!,
-});
-
 const memory = new Memory({
   options: {
     lastMessages: 40,
-    semanticRecall: {
-      topK: 5,
-      messageRange: { before: 2, after: 2 },
-    },
+    semanticRecall: { topK: 5, messageRange: { before: 2, after: 2 } },
     workingMemory: {
       enabled: true,
       template: `
@@ -70,28 +73,233 @@ const memory = new Memory({
   },
 });
 
-const gateway = new Mastra({
-  agents: {
-    claw: clawAgent,           // Primary agent
-    coder: coderAgent,         // Specialized coding agent
-    researcher: researchAgent, // Web research agent
-  },
+const gateway = new Harness({
+  id: 'openclaw',
+  resourceId: 'default-workspace',
+  storage,
+  memory,
+
+  // State schema — typed, validated, persisted to thread metadata.
+  // Replaces OpenClaw's ad-hoc workspace state files.
+  stateSchema: z.object({
+    currentModelId: z.string().optional(),
+    activeChannel: z.string().optional(),
+    yolo: z.boolean().optional(), // auto-approve all tool calls
+  }),
+  initialState: { yolo: false },
+
+  // Modes — different agent personalities for different tasks.
+  // OpenClaw has a single runtime; Harness lets you switch between
+  // specialized agents without restarting.
+  modes: [
+    {
+      id: 'default',
+      name: 'Assistant',
+      default: true,
+      agent: clawAgent,
+      defaultModelId: 'anthropic/claude-sonnet-4-20250514',
+    },
+    {
+      id: 'coding',
+      name: 'Coding',
+      agent: coderAgent,
+      defaultModelId: 'anthropic/claude-sonnet-4-20250514',
+    },
+    {
+      id: 'research',
+      name: 'Research',
+      agent: researchAgent,
+      defaultModelId: 'openai/gpt-4o',
+    },
+  ],
+
+  // Subagents — focused agents that the primary agent can spawn.
+  // These run independently with constrained tool sets.
+  subagents: [
+    {
+      id: 'explore',
+      name: 'Explorer',
+      instructions: 'You explore the workspace and gather context.',
+      tools: { fileRead: fileReadTool, webSearch: webSearchTool },
+    },
+    {
+      id: 'execute',
+      name: 'Executor',
+      instructions: 'You execute specific tasks with full tool access.',
+      tools: { fileRead: fileReadTool, fileWrite: fileWriteTool, execBash: execBashTool },
+    },
+  ],
+
+  // Shared tools available across all modes
   tools: {
     webSearch: webSearchTool,
     webFetch: webFetchTool,
     sendMessage: sendMessageTool,
-    execBash: execBashTool,
     fileRead: fileReadTool,
     fileWrite: fileWriteTool,
-    memorySearch: memorySearchTool,
+    execBash: execBashTool,
+  },
+
+  // Tool permission policies — replaces OpenClaw's tool profiles.
+  // Categories: 'read', 'edit', 'execute', 'mcp', 'other'
+  toolCategoryResolver: (toolName) => {
+    if (['file-read', 'web-search', 'web-fetch'].includes(toolName)) return 'read';
+    if (['file-write'].includes(toolName)) return 'edit';
+    if (['exec-bash'].includes(toolName)) return 'execute';
+    return 'other';
+  },
+
+  // Model discovery and switching
+  resolveModel: (modelId) => {
+    // Return the appropriate model instance for any model ID
+    return createModelInstance(modelId);
+  },
+
+  // Workspace — the agent's working directory
+  workspace: { root: '/workspace', type: 'local' },
+
+  // Heartbeat handlers — periodic background tasks (replaces OpenClaw's cron tool)
+  heartbeatHandlers: [
+    {
+      id: 'sync-channels',
+      intervalMs: 5 * 60 * 1000, // every 5 minutes
+      handler: async (harness) => {
+        await syncChannelConnections();
+      },
+    },
+  ],
+
+  // Thread locking — multi-process safety for concurrent access
+  threadLock: {
+    acquire: async (threadId) => acquireLock(threadId),
+    release: async (threadId) => releaseLock(threadId),
+  },
+});
+
+await gateway.init();
+```
+
+### How the Harness Maps to OpenClaw's Gateway Features
+
+The Harness provides built-in primitives for several OpenClaw features that would otherwise need to be built from scratch:
+
+**Message queueing** — OpenClaw supports queue modes (`steer`, `followup`, `collect`) for handling messages during active agent runs. The Harness has this built-in:
+
+```typescript
+// Steer — inject instruction mid-stream (like OpenClaw's "steer" mode)
+await gateway.steer({ content: 'Focus on the security implications' });
+
+// Follow-up — queue a message to run after the current turn completes
+await gateway.followUp({ content: 'Also check the test coverage' });
+
+// Abort — cancel the current operation
+await gateway.abort();
+```
+
+**Interactive tools** — OpenClaw's agent can ask the user questions and wait for responses. The Harness provides `ask_user` and `submit_plan` as built-in tools:
+
+```typescript
+// These tools are automatically available to all agents in the Harness.
+// The agent calls ask_user → Harness emits 'ask_question' event →
+// UI presents question to user → user responds → agent continues.
+
+// No need to build this yourself — it's a primitive.
+```
+
+**Task tracking** — OpenClaw's agents track tasks. The Harness provides `task_write` and `task_check`:
+
+```typescript
+// The agent can call task_write to create/update a structured task list.
+// The Harness tracks tasks in DisplayState and emits 'task_updated' events.
+// UIs can render the task list in real-time.
+```
+
+**Display state** — OpenClaw's UI needs to know what the agent is doing. The Harness provides a canonical `DisplayState` snapshot:
+
+```typescript
+// Subscribe to all events for real-time UI updates
+const unsubscribe = gateway.subscribe((event) => {
+  switch (event.type) {
+    case 'message_update':
+      // Stream text to UI
+      break;
+    case 'tool_start':
+      // Show tool execution in UI
+      break;
+    case 'tool_approval_required':
+      // Show approval dialog
+      break;
+    case 'ask_question':
+      // Show question dialog
+      break;
+    case 'task_updated':
+      // Update task list in UI
+      break;
+    case 'display_state_changed':
+      // Full state refresh
+      break;
+  }
+});
+
+// Or get a snapshot
+const state = gateway.getDisplayState();
+// → { activeTools, messages, tokenUsage, tasks, pendingApprovals, ... }
+```
+
+**Tool approvals** — OpenClaw's device-pairing approval model maps to the Harness's permission system:
+
+```typescript
+// Category-level policies
+gateway.setPermissionForCategory({ category: 'read', policy: 'allow' });
+gateway.setPermissionForCategory({ category: 'execute', policy: 'ask' });
+
+// Tool-level overrides
+gateway.setPermissionForTool({ toolName: 'exec-bash', policy: 'ask' });
+
+// Session-level grants (approve once, allow for rest of session)
+gateway.grantSessionCategory({ category: 'edit' });
+gateway.grantSessionTool({ toolName: 'file-write' });
+
+// Respond to individual approval requests
+gateway.respondToToolApproval({ decision: 'approve' });
+```
+
+**Model switching** — OpenClaw supports switching LLMs at runtime. The Harness provides this with scoping:
+
+```typescript
+// Switch model for current thread only
+await gateway.switchModel({ modelId: 'openai/gpt-4o', scope: 'thread' });
+
+// Switch model for a specific mode
+await gateway.switchModel({ modelId: 'anthropic/claude-sonnet-4-20250514', modeId: 'coding' });
+
+// List available models with auth status
+const models = await gateway.listAvailableModels();
+// → [{ id: 'openai/gpt-4o', hasAuth: true }, { id: 'anthropic/...', hasAuth: true }, ...]
+```
+
+### The `Mastra` Class as Dependency Injection Hub
+
+While the Harness is the runtime orchestrator, the `Mastra` class still serves as the dependency injection layer that wires components together:
+
+```typescript
+import { Mastra } from '@mastra/core';
+
+const mastra = new Mastra({
+  agents: { claw: clawAgent, coder: coderAgent, researcher: researchAgent },
+  tools: {
+    webSearch: webSearchTool,
+    fileRead: fileReadTool,
+    fileWrite: fileWriteTool,
+    execBash: execBashTool,
   },
   memory: { default: memory },
   storage,
-  vectors: { default: vectorStore },
+  workflows: { researchAndReport: researchWorkflow },
 });
 ```
 
-**Key insight**: OpenClaw's Gateway is an imperative process that manages connections. Mastra's `Mastra` class is a declarative registry — you describe _what_ components exist and Mastra handles the wiring. This is a meaningful difference: Mastra's DI model means components discover each other through the registry rather than being manually wired.
+**Key insight**: OpenClaw's Gateway is an imperative, monolithic process. Mastra splits the concern into two layers: `Mastra` (declarative DI — what components exist) and `Harness` (runtime orchestration — how they interact). This separation means you can have multiple Harness instances sharing the same Mastra infrastructure, e.g., one per user or per project.
 
 ---
 
@@ -309,7 +517,33 @@ const webFetchTool = createTool({
 
 ### Tool Profiles (Allow/Deny Policies)
 
-OpenClaw supports tool profiles (`full`, `messaging`, `coding`, `minimal`) that control which tools an agent can access. In Mastra, this maps naturally to dynamic tool resolution:
+OpenClaw supports tool profiles (`full`, `messaging`, `coding`, `minimal`) that control which tools an agent can access. In Mastra, this maps to two complementary mechanisms:
+
+**1. Harness permission system** — Category-based policies with session grants (the primary mechanism):
+
+```typescript
+const gateway = new Harness({
+  // ...
+  toolCategoryResolver: (toolName) => {
+    if (['file-read', 'web-search', 'web-fetch'].includes(toolName)) return 'read';
+    if (['file-write'].includes(toolName)) return 'edit';
+    if (['exec-bash'].includes(toolName)) return 'execute';
+    if (['send-message'].includes(toolName)) return 'other';
+    return 'mcp';
+  },
+});
+
+// Set policies per category: 'allow', 'ask', or 'deny'
+gateway.setPermissionForCategory({ category: 'read', policy: 'allow' });
+gateway.setPermissionForCategory({ category: 'edit', policy: 'ask' });
+gateway.setPermissionForCategory({ category: 'execute', policy: 'ask' });
+
+// Grant broad access for a session (like OpenClaw's "yolo" mode)
+gateway.grantSessionCategory({ category: 'edit' });
+gateway.grantSessionCategory({ category: 'execute' });
+```
+
+**2. Dynamic tool resolution on the Agent** — For per-request tool filtering:
 
 ```typescript
 type ToolProfile = 'full' | 'messaging' | 'coding' | 'minimal';
@@ -326,18 +560,18 @@ const profiledAgent = new Agent({
   name: 'Profiled Agent',
   model: 'anthropic/claude-sonnet-4-20250514',
   instructions: 'You are an assistant with role-based tool access.',
-
-  // Dynamic tools — resolved per-request based on channel or user role
   tools: async (requestContext) => {
     const profile = requestContext?.toolProfile ?? 'minimal';
     const allowed = TOOL_PROFILES[profile];
     const allTools = { webSearch: webSearchTool, fileRead: fileReadTool, /* ... */ };
-
     return Object.fromEntries(
       Object.entries(allTools).filter(([_, tool]) => allowed.includes(tool.id))
     );
   },
 });
+```
+
+The Harness permission system is the more natural fit for OpenClaw's model because it operates at runtime (approve/deny individual tool calls) rather than at configuration time (filter which tools are available). This matches OpenClaw's behavior where tools are always _available_ but may require approval.
 ```
 
 ---
@@ -571,59 +805,57 @@ const discordWebhook = registerApiRoute('/webhooks/discord', {
 });
 ```
 
-### Message Debouncing and Queueing
+### Message Queueing — Harness Steer/FollowUp
 
-OpenClaw debounces rapid consecutive messages and supports queue modes (`steer`, `followup`, `collect`). This is a domain-specific concern that Mastra doesn't directly provide, but it can be built with workflows:
+OpenClaw supports queue modes (`steer`, `followup`, `collect`) for handling messages that arrive during an active agent run. The Harness provides this as a built-in primitive:
 
 ```typescript
-import { createWorkflow, createStep } from '@mastra/core/workflows';
-import { z } from 'zod';
+// In the webhook handler, check if the agent is already running
+async function handleIncomingMessage(channelId: string, userId: string, message: string) {
+  if (gateway.isRunning()) {
+    // Agent is mid-turn — use queue modes
 
-const debounceStep = createStep({
-  id: 'debounce-messages',
-  inputSchema: z.object({
-    channelId: z.string(),
-    userId: z.string(),
-    message: z.string(),
-    debounceMs: z.number().default(1500),
-  }),
-  outputSchema: z.object({
-    combinedMessage: z.string(),
-    messageCount: z.number(),
-  }),
-  execute: async ({ channelId, userId, message, debounceMs }, context) => {
-    // Collect messages within the debounce window
-    const messages = [message];
-    // In practice, this would use a queue/buffer keyed by userId
-    await new Promise(resolve => setTimeout(resolve, debounceMs));
-    // Drain any additional messages that arrived
-    const additional = await drainMessageBuffer(channelId, userId);
-    messages.push(...additional);
+    // "steer" — inject instruction into the current turn
+    // (OpenClaw: message influences current reasoning)
+    await gateway.steer({ content: message });
 
-    return {
-      combinedMessage: messages.join('\n'),
-      messageCount: messages.length,
-    };
-  },
-});
+    // OR "followup" — queue for after current turn completes
+    // (OpenClaw: message runs as a new turn after this one)
+    await gateway.followUp({ content: message });
 
-const processMessageStep = createStep(clawAgent, {
-  structuredOutput: { schema: z.object({ text: z.string() }) },
-});
+    return; // Don't start a new agent turn
+  }
 
-const messageWorkflow = createWorkflow({
-  id: 'process-channel-message',
-  inputSchema: z.object({
-    channelId: z.string(),
-    userId: z.string(),
-    message: z.string(),
-    debounceMs: z.number().default(1500),
-  }),
-  outputSchema: z.object({ text: z.string() }),
-})
-  .then(debounceStep)
-  .then(processMessageStep)
-  .commit();
+  // Agent is idle — start a new turn
+  await gateway.sendMessage({ content: message });
+}
+```
+
+For debouncing (batching rapid consecutive messages), the Harness doesn't provide a built-in mechanism, but it's straightforward to add as a thin layer:
+
+```typescript
+const messageBuffers = new Map<string, { messages: string[]; timer: NodeJS.Timeout }>();
+
+function handleIncomingWithDebounce(channelId: string, userId: string, message: string) {
+  const key = `${channelId}:${userId}`;
+  const buffer = messageBuffers.get(key) ?? { messages: [], timer: null! };
+
+  clearTimeout(buffer.timer);
+  buffer.messages.push(message);
+
+  buffer.timer = setTimeout(async () => {
+    const combined = buffer.messages.join('\n');
+    messageBuffers.delete(key);
+
+    if (gateway.isRunning()) {
+      await gateway.followUp({ content: combined });
+    } else {
+      await gateway.sendMessage({ content: combined });
+    }
+  }, 1500);
+
+  messageBuffers.set(key, buffer);
+}
 ```
 
 ---
@@ -703,11 +935,57 @@ await mcpServer.startHTTP({ port: 3001 });
 
 ---
 
-## 7. Multi-Agent Delegation — Supervisor and Network Patterns
+## 7. Multi-Agent Delegation — Harness Subagents, Supervisor, and Network Patterns
 
-OpenClaw supports a single agent runtime with node-based delegation. Mastra provides two built-in multi-agent patterns that are more structured:
+OpenClaw supports node-based delegation where the primary agent can spawn focused sub-tasks. Mastra provides three complementary mechanisms, with the Harness subagent model being the closest analog to OpenClaw's architecture.
 
-### Supervisor Pattern (Hierarchical Delegation)
+### Harness Subagents (Closest to OpenClaw's Model)
+
+The Harness's built-in `subagent` tool is the most direct mapping. Subagents are focused agents with constrained tool access that run independently and return their findings as text. This matches OpenClaw's node delegation model where the primary agent spawns specialized sub-tasks:
+
+```typescript
+const gateway = new Harness({
+  id: 'openclaw',
+  // ...
+  modes: [
+    { id: 'default', name: 'Assistant', default: true, agent: clawAgent },
+  ],
+
+  // Subagents — the primary agent gets a 'subagent' tool that can spawn these
+  subagents: [
+    {
+      id: 'explore',
+      name: 'Explorer',
+      instructions: 'You explore codebases and gather context. Read files, search for patterns, and summarize findings.',
+      tools: { fileRead: fileReadTool, webSearch: webSearchTool },
+    },
+    {
+      id: 'plan',
+      name: 'Planner',
+      instructions: 'You create implementation plans. Analyze requirements and break them into actionable steps.',
+      tools: { fileRead: fileReadTool, webSearch: webSearchTool },
+    },
+    {
+      id: 'execute',
+      name: 'Executor',
+      instructions: 'You execute specific implementation tasks. Write code, run tests, fix bugs.',
+      tools: { fileRead: fileReadTool, fileWrite: fileWriteTool, execBash: execBashTool },
+    },
+  ],
+});
+
+// The primary agent can now call the 'subagent' tool:
+// → subagent({ type: 'explore', prompt: 'Find all API endpoints in the codebase' })
+// → subagent({ type: 'execute', prompt: 'Add input validation to the user registration endpoint' })
+
+// Subagent lifecycle events are emitted for UI tracking:
+// 'subagent_start', 'subagent_text_delta', 'subagent_tool_start',
+// 'subagent_tool_end', 'subagent_end'
+```
+
+### Supervisor Pattern (Hierarchical Delegation via Agent Primitive)
+
+For more structured delegation with context control, the Agent primitive's supervisor pattern provides delegation hooks:
 
 ```typescript
 const coderAgent = new Agent({
@@ -726,7 +1004,6 @@ const researchAgent = new Agent({
   tools: { webSearch: webSearchTool, webFetch: webFetchTool },
 });
 
-// Supervisor agent that delegates to specialists
 const clawAgent = new Agent({
   id: 'claw',
   name: 'Claw Supervisor',
@@ -738,11 +1015,8 @@ const clawAgent = new Agent({
   tools: { sendMessage: sendMessageTool },
   agents: { coder: coderAgent, researcher: researchAgent },
 
-  // Control what context flows to sub-agents
   onDelegationStart: async ({ delegatedAgent, messages }) => {
-    return {
-      messages: messages.slice(-10), // Only send last 10 messages for context
-    };
+    return { messages: messages.slice(-10) };
   },
 
   onDelegationComplete: async ({ delegatedAgent, result }) => {
@@ -758,11 +1032,21 @@ const clawAgent = new Agent({
 const response = await clawAgent.network({
   prompt: 'Research the latest TypeScript features and create a summary file',
   agents: { coder: coderAgent, researcher: researchAgent },
-  // The routing agent decides which agent handles each sub-task
   isTaskComplete: [completionScorer],
   maxIterations: 10,
 });
 ```
+
+### Which Pattern Fits OpenClaw Best?
+
+The **Harness subagent model** is the closest fit for OpenClaw because:
+
+1. **Constrained tool access** — Subagents get only the tools they need, matching OpenClaw's node permissions
+2. **Independent execution** — Subagents run in their own context, not sharing the parent's conversation
+3. **Text-based return** — Findings come back as text that the primary agent synthesizes, matching OpenClaw's node output model
+4. **UI visibility** — Subagent lifecycle events (`subagent_start`, `subagent_tool_start`, etc.) let UIs show what's happening, matching OpenClaw's node visibility
+
+The Supervisor and Network patterns are complementary — use them when you need richer context sharing or dynamic routing between full agents.
 
 ---
 
@@ -882,32 +1166,49 @@ const deployStep = createStep({
 
 ## 9. Putting It All Together
 
-Here's what the full `Mastra`-based OpenClaw looks like as a composition of primitives:
+Here's what the full `Mastra`-based OpenClaw looks like as a composition of primitives, with the `Harness` as the central orchestrator:
 
 ```typescript
 import { Mastra } from '@mastra/core';
+import { Harness } from '@mastra/core/harness';
 import { Agent } from '@mastra/core/agent';
+import { createTool } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import { LibSQLStore } from '@mastra/libsql';
 import { MastraMCPClient } from '@mastra/mcp';
 import { HonoServer } from '@mastra/server/hono';
+import { z } from 'zod';
 
-// --- Storage ---
+// ─── Storage ───
 const storage = new LibSQLStore({
   id: 'openclaw',
   url: process.env.DATABASE_URL!,
 });
 
-// --- Memory ---
+// ─── Memory ───
 const memory = new Memory({
   options: {
     lastMessages: 40,
     semanticRecall: { topK: 5 },
-    workingMemory: { enabled: true, template: '...' },
+    workingMemory: {
+      enabled: true,
+      template: `
+## User Profile
+- Name: {{name}}
+- Preferences: {{preferences}}
+
+## Active Context
+- Channel: {{activeChannel}}
+- Project: {{activeProject}}
+
+## Notes
+{{notes}}
+      `,
+    },
   },
 });
 
-// --- MCP Plugins ---
+// ─── MCP Plugins ───
 const plugins = new MastraMCPClient({
   servers: {
     filesystem: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/workspace'] },
@@ -915,58 +1216,166 @@ const plugins = new MastraMCPClient({
   },
 });
 
-// --- Specialist Agents ---
+// ─── Agents (one per Harness mode) ───
+const assistantAgent = new Agent({
+  id: 'assistant',
+  name: 'Assistant',
+  model: 'anthropic/claude-sonnet-4-20250514',
+  instructions: `You are Claw, an autonomous AI assistant.
+You can search the web, manage files, execute commands, and communicate across channels.
+Use subagents for focused tasks: 'explore' for research, 'execute' for implementation.`,
+  tools: async () => ({
+    sendMessage: sendMessageTool,
+    webSearch: webSearchTool,
+    webFetch: webFetchTool,
+    ...await plugins.getTools(),
+  }),
+});
+
 const coderAgent = new Agent({
   id: 'coder',
   name: 'Coder',
   model: 'anthropic/claude-sonnet-4-20250514',
-  instructions: 'You write, debug, and refactor code.',
-  tools: { fileRead: fileReadTool, fileWrite: fileWriteTool, execBash: execBashTool },
-  memory,
+  instructions: 'You write, debug, and refactor code. Focus on correctness and clarity.',
+  tools: {
+    fileRead: fileReadTool,
+    fileWrite: fileWriteTool,
+    execBash: execBashTool,
+    webSearch: webSearchTool,
+  },
 });
 
 const researchAgent = new Agent({
   id: 'researcher',
   name: 'Researcher',
   model: 'openai/gpt-4o',
-  instructions: 'You research topics and synthesize findings.',
+  instructions: 'You research topics and synthesize findings into clear summaries.',
   tools: { webSearch: webSearchTool, webFetch: webFetchTool },
-  memory,
 });
 
-// --- Primary Agent (Supervisor) ---
-const clawAgent = new Agent({
-  id: 'claw',
-  name: 'Claw',
-  model: 'anthropic/claude-sonnet-4-20250514',
-  instructions: async (ctx) => {
-    const channelRules = getChannelRules(ctx?.channelId);
-    return `You are Claw, an autonomous AI assistant.
-Delegate coding tasks to "coder" and research to "researcher".
-${channelRules}`;
-  },
-  tools: async () => ({
-    sendMessage: sendMessageTool,
-    ...await plugins.getTools(),
+// ─── Harness (the Gateway) ───
+const gateway = new Harness({
+  id: 'openclaw',
+  resourceId: process.env.WORKSPACE_ID ?? 'default',
+  storage,
+  memory,
+
+  stateSchema: z.object({
+    activeChannel: z.string().optional(),
+    yolo: z.boolean().optional(),
   }),
-  agents: { coder: coderAgent, researcher: researchAgent },
-  memory,
+  initialState: { yolo: false },
+
+  // Agent modes — switch between personalities at runtime
+  modes: [
+    { id: 'assistant', name: 'Assistant', default: true, agent: assistantAgent },
+    { id: 'coding', name: 'Coding', agent: coderAgent },
+    { id: 'research', name: 'Research', agent: researchAgent },
+  ],
+
+  // Subagents — focused agents the primary agent can spawn
+  subagents: [
+    {
+      id: 'explore',
+      name: 'Explorer',
+      instructions: 'Explore and gather context. Read files, search the web.',
+      tools: { fileRead: fileReadTool, webSearch: webSearchTool },
+    },
+    {
+      id: 'execute',
+      name: 'Executor',
+      instructions: 'Execute implementation tasks with full tool access.',
+      tools: { fileRead: fileReadTool, fileWrite: fileWriteTool, execBash: execBashTool },
+    },
+  ],
+
+  // Shared tools
+  tools: {
+    webSearch: webSearchTool,
+    webFetch: webFetchTool,
+    sendMessage: sendMessageTool,
+    fileRead: fileReadTool,
+    fileWrite: fileWriteTool,
+    execBash: execBashTool,
+  },
+
+  // Tool permission policies
+  toolCategoryResolver: (toolName) => {
+    if (['file-read', 'web-search', 'web-fetch'].includes(toolName)) return 'read';
+    if (['file-write'].includes(toolName)) return 'edit';
+    if (['exec-bash'].includes(toolName)) return 'execute';
+    return 'other';
+  },
+
+  resolveModel: (modelId) => createModelInstance(modelId),
+  workspace: { root: '/workspace', type: 'local' },
+
+  heartbeatHandlers: [
+    {
+      id: 'channel-sync',
+      intervalMs: 5 * 60 * 1000,
+      handler: async () => { await syncChannelConnections(); },
+    },
+  ],
 });
 
-// --- Gateway ---
-const gateway = new Mastra({
-  agents: { claw: clawAgent, coder: coderAgent, researcher: researchAgent },
+// ─── Mastra (DI registry) ───
+const mastra = new Mastra({
+  agents: { assistant: assistantAgent, coder: coderAgent, researcher: researchAgent },
   workflows: { researchAndReport: researchWorkflow },
   storage,
   memory: { default: memory },
 });
 
-// --- Server ---
-const server = new HonoServer({
-  mastra: gateway,
-  customApiRoutes: [telegramWebhook, discordWebhook],
+// ─── Initialize ───
+await gateway.init();
+await gateway.selectOrCreateThread();
+
+// ─── Event-driven UI (WebSocket, TUI, or web) ───
+gateway.subscribe((event) => {
+  switch (event.type) {
+    case 'message_update':
+      streamToChannel(event.data);
+      break;
+    case 'tool_approval_required':
+      promptForApproval(event.data);
+      break;
+    case 'ask_question':
+      promptUser(event.data);
+      break;
+    case 'task_updated':
+      renderTasks(event.data);
+      break;
+  }
 });
+
+// ─── Channel webhooks ───
+// (See Section 5 for full channel adapter examples)
+
+// ─── Handle incoming messages ───
+async function handleMessage(channelId: string, userId: string, text: string) {
+  gateway.setState({ activeChannel: channelId });
+
+  if (gateway.isRunning()) {
+    await gateway.followUp({ content: text });
+  } else {
+    await gateway.sendMessage({ content: text, images: [] });
+  }
+}
 ```
+
+This composition uses every major Mastra primitive:
+
+| Primitive | Role |
+|---|---|
+| **`Harness`** | Gateway — orchestration, state, events, thread management, approvals, subagents |
+| **`Agent`** | Per-mode agent personalities with tools and instructions |
+| **`Tool`** | Type-safe tools with schemas, approvals, suspend/resume |
+| **`Memory`** | Semantic recall, working memory, thread-based persistence |
+| **`Storage`** | Database-backed persistence for threads, messages, state |
+| **`MCP Client`** | Plugin system via open standard |
+| **`Mastra`** | Dependency injection hub wiring components together |
+| **`Workflow`** | Multi-step automation with type-safe chaining |
 
 ---
 
@@ -976,44 +1385,67 @@ const server = new HonoServer({
 
 | Area | Advantage |
 |---|---|
-| **Type safety** | Zod schemas on every tool, workflow step, and agent output. OpenClaw has no schema validation. |
-| **Memory architecture** | Semantic recall, working memory templates, resource-scoped state. Far more structured than OpenClaw's JSONL transcripts. |
-| **Multi-agent patterns** | Built-in supervisor and network orchestration with delegation hooks. OpenClaw's delegation is ad-hoc. |
+| **Harness as control plane** | The Harness provides a complete orchestration layer with state management, event-driven architecture, display state for UIs, built-in interactive tools, tool permissions, and subagent spawning. OpenClaw's Gateway must be built from scratch with custom code for all of these. |
+| **Type safety** | Zod schemas on every tool, workflow step, agent output, and Harness state. OpenClaw has no schema validation. |
+| **Multi-mode agents** | The Harness's mode system lets you switch between agent personalities at runtime without restarting. OpenClaw has a single agent runtime. |
+| **Message queueing** | Harness provides `steer()` and `followUp()` as built-in primitives, matching OpenClaw's queue modes without custom code. |
+| **Tool permissions** | Harness provides category-based policies, per-tool overrides, and session grants. OpenClaw's tool profiles are static configuration. |
+| **Interactive tools** | `ask_user`, `submit_plan`, `task_write`, `task_check` are built-in Harness tools. OpenClaw requires custom implementations for each. |
+| **Display state** | Harness provides a canonical `DisplayState` snapshot with 35+ event types, making UI development straightforward. |
+| **Memory architecture** | Semantic recall, working memory templates, observational memory, resource-scoped state. Far more structured than OpenClaw's JSONL transcripts. |
+| **Multi-agent patterns** | Harness subagents + Agent supervisor/network patterns. OpenClaw's delegation is ad-hoc. |
 | **Workflow engine** | Type-safe step chaining, parallel execution, suspend/resume, conditional branching. OpenClaw has basic YAML workflows. |
 | **Tool extensibility** | MCP standard means any MCP-compatible server works. OpenClaw's plugin API is proprietary. |
 | **Observability** | OpenTelemetry integration for tracing across agents, tools, and workflows. |
-| **Approval workflows** | First-class `requireApproval` and `suspend/resume` on tools and workflow steps. |
+| **Model switching** | Harness provides runtime model switching scoped to thread, mode, or global, with auth status checking. |
 
 ### Gaps to Fill
 
 | Area | Gap | Mitigation |
 |---|---|---|
-| **Channel gateway** | Mastra has no built-in messaging channel adapters (WhatsApp, Telegram, etc.) | Build as custom API routes + channel adapter registry (shown above) |
-| **Message debouncing** | No built-in message batching/debouncing for rapid-fire messages | Implement as a workflow step or middleware |
-| **Long-lived connections** | Mastra's server model is request/response; OpenClaw maintains persistent WebSocket connections | Use Hono's WebSocket support or a separate WebSocket process |
+| **Channel gateway** | Mastra has no built-in messaging channel adapters (WhatsApp, Telegram, etc.) | Build as custom API routes + channel adapter registry (shown in Section 5) |
+| **Message debouncing** | No built-in message batching/debouncing for rapid-fire messages | Thin application-level buffer (shown in Section 5) |
+| **Long-lived connections** | Mastra's server model is request/response; OpenClaw maintains persistent WebSocket connections | Use Hono's WebSocket support or pipe Harness events to a WebSocket layer |
 | **Device pairing** | OpenClaw's WhatsApp/Signal pairing flow is channel-specific | Channel adapters would handle this per-channel |
-| **Cron scheduling** | No built-in cron; OpenClaw has a `cron` tool | Use external scheduler (node-cron) calling workflow endpoints |
-| **Queue modes** | OpenClaw's interrupt/steer/followup/collect modes for concurrent messages | Build as stateful middleware with storage-backed queues |
+
+Note how much shorter this gaps list is compared to a mapping without the Harness. The Harness eliminates several categories that would otherwise be gaps: message queueing, tool approvals, interactive tools, display state, model switching, and cron scheduling (via heartbeat handlers).
 
 ### Architectural Differences Worth Noting
 
-1. **Declarative vs. Imperative**: Mastra is declarative (register components, let the framework wire them). OpenClaw is imperative (a running process that manages connections). Mastra's model is better for deployment flexibility (serverless, containers, etc.) but means you need to build the "always-on" gateway layer yourself.
+1. **Two-layer orchestration**: Mastra splits orchestration into `Mastra` (declarative DI — what components exist) and `Harness` (runtime orchestration — how they interact at runtime). OpenClaw's Gateway conflates both concerns. Mastra's separation means you can have multiple Harness instances sharing the same infrastructure (e.g., per-project or per-user).
 
-2. **Single Agent vs. Multi-Agent**: OpenClaw runs a single embedded agent with node-based delegation. Mastra's multi-agent patterns (supervisor, network) are more structured and provide better control over delegation, message filtering, and task completion detection.
+2. **Event-driven vs. request/response**: The Harness's event system (35+ event types) makes it natural to build real-time UIs — subscribe to events and stream updates. OpenClaw's Gateway uses WebSocket connections for a similar effect, but the Harness's event taxonomy is more structured.
 
-3. **Memory Model**: OpenClaw's memory is file-based (JSONL transcripts + workspace files). Mastra's memory is database-backed with semantic search, working memory templates, and resource scoping. This is a substantial improvement for production use.
+3. **Multi-mode vs. single agent**: OpenClaw runs a single embedded agent. The Harness's mode system lets you switch between specialized agents (coding, research, planning) within the same session, preserving thread context across mode switches.
 
-4. **Extension Model**: OpenClaw's plugin system has had security issues (400+ malicious plugins discovered). Mastra's MCP integration uses a standard protocol with better isolation guarantees.
+4. **Subagents vs. nodes**: OpenClaw's node delegation is implicit (the agent decides to delegate). Harness subagents are explicit, configured, and constrained — each subagent has a defined purpose and limited tool access. This reduces the surface area for unintended behavior.
+
+5. **Memory model**: OpenClaw's memory is file-based (JSONL transcripts + workspace files). Mastra's memory is database-backed with semantic search, working memory templates, observational memory, and resource scoping. The Harness integrates observational memory events directly into its event stream.
+
+6. **Extension model**: OpenClaw's plugin system has had security issues (400+ malicious plugins discovered). Mastra's MCP integration uses a standard protocol with better isolation guarantees.
 
 ---
 
 ## Conclusion
 
-Building OpenClaw with Mastra primitives is not just feasible — it's architecturally cleaner. The core agent runtime, tools, memory, and multi-agent orchestration map directly to Mastra primitives with stronger type safety and more structured patterns. The main work would be building the channel gateway layer (messaging adapters, webhook routing, message debouncing) as application code on top of Mastra's server and workflow primitives.
+Building OpenClaw with Mastra primitives is not just feasible — it's architecturally cleaner. The **Harness** primitive is the key: it provides the complete control plane that OpenClaw's Gateway implements from scratch, including state management, event-driven UI updates, message queueing, tool permissions, interactive tools, subagent spawning, model switching, and display state.
+
+The remaining primitives fill in the rest:
+- **Agent** — Per-mode agent personalities with dynamic instructions
+- **Tool** — Type-safe tools with schemas, approvals, suspend/resume
+- **Memory** — Semantic recall, working memory, observational memory
+- **Storage** — Database-backed persistence
+- **MCP** — Plugin system via open standard
+- **Workflow** — Multi-step automation with type-safe chaining
+- **Mastra** — Dependency injection wiring everything together
+
+The only significant work is building the **channel gateway layer** (messaging adapters for WhatsApp, Telegram, Discord, etc.) as application code on top of the Harness. Everything else — the agent runtime, orchestration, state management, tool system, memory, queueing, approvals, and UI integration — maps directly to Mastra primitives.
 
 The resulting system would be:
+- **More structured** — Harness provides a coherent orchestration model vs. imperative Gateway code
 - **More type-safe** — Zod schemas everywhere vs. no validation
 - **More extensible** — MCP standard vs. proprietary plugins
-- **Better memory** — Semantic recall + working memory vs. JSONL files
+- **Better memory** — Semantic recall + working memory + observational memory vs. JSONL files
+- **Better UI integration** — 35+ event types + DisplayState vs. raw WebSocket messages
 - **More observable** — OpenTelemetry tracing vs. log files
-- **More flexible deployment** — Serverless, containers, or long-lived process vs. long-lived only
+- **More flexible** — Multiple modes, subagents, and model switching vs. single agent runtime
