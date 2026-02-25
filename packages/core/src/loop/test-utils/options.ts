@@ -7727,6 +7727,25 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
             },
             {
               "from": "AGENT",
+              "payload": {
+                "id": "id-2",
+                "providerMetadata": undefined,
+              },
+              "runId": "test-run-id",
+              "type": "text-start",
+            },
+            {
+              "from": "AGENT",
+              "payload": {
+                "id": "id-2",
+                "providerMetadata": undefined,
+                "text": "Hello",
+              },
+              "runId": "test-run-id",
+              "type": "text-delta",
+            },
+            {
+              "from": "AGENT",
               "payload": {},
               "runId": "test-run-id",
               "type": "abort",
@@ -7777,7 +7796,7 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
                 },
                 "output": {
                   "steps": [],
-                  "text": "",
+                  "text": "Hello",
                   "toolCalls": [],
                   "usage": {
                     "inputTokens": 0,
@@ -8239,6 +8258,25 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
             },
             {
               "from": "AGENT",
+              "payload": {
+                "id": "id-2",
+                "providerMetadata": undefined,
+              },
+              "runId": "test-run-id",
+              "type": "text-start",
+            },
+            {
+              "from": "AGENT",
+              "payload": {
+                "id": "id-2",
+                "providerMetadata": undefined,
+                "text": "Hello",
+              },
+              "runId": "test-run-id",
+              "type": "text-delta",
+            },
+            {
+              "from": "AGENT",
               "payload": {},
               "runId": "test-run-id",
               "type": "abort",
@@ -8352,7 +8390,7 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
                 },
                 "output": {
                   "steps": [],
-                  "text": "",
+                  "text": "Hello",
                   "toolCalls": [],
                   "usage": {
                     "inputTokens": 3,
