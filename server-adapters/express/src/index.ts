@@ -544,8 +544,9 @@ export class MastraServer extends MastraServerBase<Application, Request, Respons
           const headers = { ...req.headers };
           const redactHeaders = this.httpLoggingConfig.redactHeaders || [];
           redactHeaders.forEach(h => {
-            if (headers[h]) {
-              headers[h] = '[REDACTED]';
+            const key = h.toLowerCase();
+            if (headers[key] !== undefined) {
+              headers[key] = '[REDACTED]';
             }
           });
           logData.headers = headers;

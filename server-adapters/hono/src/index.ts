@@ -577,8 +577,9 @@ export class MastraServer extends MastraServerBase<HonoApp, HonoRequest, Context
         const headers = Object.fromEntries(c.req.raw.headers.entries());
         const redactHeaders = this.httpLoggingConfig.redactHeaders || [];
         redactHeaders.forEach(h => {
-          if (headers[h]) {
-            headers[h] = '[REDACTED]';
+          const key = h.toLowerCase();
+          if (headers[key] !== undefined) {
+            headers[key] = '[REDACTED]';
           }
         });
         logData.headers = headers;

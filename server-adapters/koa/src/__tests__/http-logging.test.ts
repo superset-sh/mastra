@@ -36,26 +36,6 @@ describe('Koa Server Adapter', () => {
       const query = Object.fromEntries(parsedUrl.searchParams);
 
       return new Promise(resolve => {
-        // Create mock Koa context
-        let statusCode = 200;
-        const ctx: any = {
-          method,
-          path,
-          query,
-          headers: options.headers || {},
-          status: statusCode,
-          body: undefined,
-        };
-
-        // Override status setter
-        Object.defineProperty(ctx, 'status', {
-          get: () => statusCode,
-          set: value => {
-            statusCode = value;
-          },
-        });
-
-        // Create callback
         const callback = app.callback();
 
         // Create minimal req/res objects
@@ -63,12 +43,12 @@ describe('Koa Server Adapter', () => {
           method,
           url: parsedUrl.pathname + parsedUrl.search,
           headers: options.headers || {},
-          on: () => {}, // Add on method for event listeners
+          on: () => {},
         };
 
         const headers: Record<string, string> = {};
         const res: any = {
-          statusCode,
+          statusCode: 200,
           setHeader: (name: string, value: string) => {
             headers[name.toLowerCase()] = value;
           },
@@ -80,7 +60,7 @@ describe('Koa Server Adapter', () => {
           },
           end: () => {
             res.writableEnded = true;
-            resolve({ status: statusCode });
+            resolve({ status: res.statusCode });
           },
           on: () => {},
           writableEnded: false,

@@ -46,7 +46,7 @@ describe('Hono Server Adapter', () => {
           'Content-Type': 'application/json',
           ...(options.headers || {}),
         },
-        body: options.body,
+        ...(options.body ? { body: options.body } : {}),
       });
 
       const response = await app.request(request);

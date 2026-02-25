@@ -90,7 +90,7 @@ describe('HTTP Logging Configuration', () => {
       expect(config.redactHeaders).toEqual(['authorization', 'cookie']); // Default value
     });
 
-    it('should allow custom redactHeaders', () => {
+    it('should merge custom redactHeaders with defaults', () => {
       mastra = new Mastra({
         server: {
           build: {
@@ -104,7 +104,7 @@ describe('HTTP Logging Configuration', () => {
       const adapter = new TestMastraServer({ app: mockApp, mastra });
 
       const config: HttpLoggingConfig = (adapter as any).httpLoggingConfig;
-      expect(config.redactHeaders).toEqual(['x-api-key', 'x-secret']);
+      expect(config.redactHeaders).toEqual(['authorization', 'cookie', 'x-api-key', 'x-secret']);
     });
 
     it('should support all log levels', () => {
@@ -186,7 +186,7 @@ describe('HTTP Logging Configuration', () => {
       expect((adapter as any).shouldLogRequest('/api/test')).toBe(true);
     });
 
-    it('should match path prefixes for exclusion', () => {
+    it('should match exact paths and sub-paths for exclusion', () => {
       mastra = new Mastra({
         server: {
           build: {
@@ -201,7 +201,7 @@ describe('HTTP Logging Configuration', () => {
 
       expect((adapter as any).shouldLogRequest('/health')).toBe(false);
       expect((adapter as any).shouldLogRequest('/health/check')).toBe(false);
-      expect((adapter as any).shouldLogRequest('/healthcheck')).toBe(false);
+      expect((adapter as any).shouldLogRequest('/healthcheck')).toBe(true);
       expect((adapter as any).shouldLogRequest('/api/health')).toBe(true);
     });
 

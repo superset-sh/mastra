@@ -2,4 +2,4 @@
 '@mastra/server': patch
 ---
 
-Added base HTTP request logging support with configuration parsing and helper methods for server adapters.
+Added HTTP request logging infrastructure. This enables `apiReqLogs: true` (or a detailed `HttpLoggingConfig`) in the server config to log method, path, status, and duration for every request, with optional header redaction and path exclusions.

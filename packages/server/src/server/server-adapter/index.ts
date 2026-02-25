@@ -235,7 +235,7 @@ export abstract class MastraServer<TApp, TRequest, TResponse> extends MastraServ
         excludePaths: config.excludePaths,
         includeHeaders: config.includeHeaders,
         includeQueryParams: config.includeQueryParams,
-        redactHeaders: config.redactHeaders || ['authorization', 'cookie'],
+        redactHeaders: [...new Set([...['authorization', 'cookie'], ...(config.redactHeaders || [])])],
       };
     }
     return undefined;
@@ -251,8 +251,9 @@ export abstract class MastraServer<TApp, TRequest, TResponse> extends MastraServ
       return false;
     }
 
+    // Uses segment-aware matching so '/health' excludes '/health' and '/health/deep' but not '/healthcheck'
     const excludePaths = this.httpLoggingConfig.excludePaths || [];
-    return !excludePaths.some((excluded: string) => path.startsWith(excluded));
+    return !excludePaths.some((excluded: string) => path === excluded || path.startsWith(excluded + '/'));
   }
 
   protected mergeRequestContext({

@@ -631,13 +631,14 @@ export class MastraServer extends MastraServerBase<FastifyInstance, FastifyReque
     }
 
     this.app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-      if (!this.shouldLogRequest(request.url)) {
+      const urlPath = request.url.split('?')[0]!;
+      if (!this.shouldLogRequest(urlPath)) {
         return;
       }
 
       const start = Date.now();
       const method = request.method;
-      const path = request.url;
+      const path = urlPath;
 
       reply.raw.once('finish', () => {
         const duration = Date.now() - start;
@@ -659,8 +660,9 @@ export class MastraServer extends MastraServerBase<FastifyInstance, FastifyReque
           const headers = { ...request.headers };
           const redactHeaders = this.httpLoggingConfig.redactHeaders || [];
           redactHeaders.forEach((h: string) => {
-            if (headers[h]) {
-              headers[h] = '[REDACTED]';
+            const key = h.toLowerCase();
+            if (headers[key] !== undefined) {
+              headers[key] = '[REDACTED]';
             }
           });
           logData.headers = headers;

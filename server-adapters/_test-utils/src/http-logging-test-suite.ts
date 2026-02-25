@@ -306,7 +306,7 @@ export function createHttpLoggingTestSuite<TApp>(config: HttpLoggingTestSuiteCon
           headers: expect.objectContaining({
             'x-api-key': '[REDACTED]',
             'x-secret': '[REDACTED]',
-            authorization: 'Bearer token', // Not in custom redact list
+            authorization: '[REDACTED]', // Defaults are always merged with custom redact list
           }),
         }),
       );
