@@ -32,8 +32,6 @@ describe('Koa Server Adapter', () => {
 
     executeRequest: async (app, method, url, options = {}) => {
       const parsedUrl = new URL(url);
-      const path = parsedUrl.pathname;
-      const query = Object.fromEntries(parsedUrl.searchParams);
 
       return new Promise(resolve => {
         const callback = app.callback();
