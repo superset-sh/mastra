@@ -1,6 +1,3 @@
-import { Mastra } from '@mastra/core';
-import { noopLogger } from '@mastra/core/logger';
-
 import { AuthStorage } from './auth/storage.js';
 import { createHarness } from './harness/index.js';
 import { setAuthStorage } from './providers/claude-max.js';
@@ -14,23 +11,11 @@ export async function createMastraCode(config?: MastraCodeConfig) {
   setAuthStorage(authStorage);
   setOpenAIAuthStorage(authStorage);
 
-  const { harness, storage, storageWarning, codingAgent, mcpManager, hookManager } = await createHarness({ authStorage, config: config ?? {} });
-
-  // Create Mastra with all components — agents are registered first, then harnesses.
-  // The harness inherits storage from Mastra via __registerPrimitives.
-  const mastra = new Mastra({
-    agents: { codingAgent },
-    logger: noopLogger,
-    storage,
-    harnesses: { 'mastra-code': harness },
-  });
-
-  // Retrieve the registered harness from Mastra
-  const registeredHarness = mastra.getHarness('mastra-code');
+  const { harness, storageWarning, mcpManager, hookManager } = await createHarness({ authStorage, config: config ?? {} });
 
   // Sync hookManager session ID on thread changes
   if (hookManager) {
-    registeredHarness.subscribe(event => {
+    harness.subscribe(event => {
       if (event.type === 'thread_changed') {
         hookManager.setSessionId(event.threadId);
       } else if (event.type === 'thread_created') {
@@ -39,5 +24,5 @@ export async function createMastraCode(config?: MastraCodeConfig) {
     });
   }
 
-  return { mastra, harness: registeredHarness, mcpManager, hookManager, authStorage, storageWarning };
+  return { harness, mcpManager, hookManager, authStorage, storageWarning };
 }

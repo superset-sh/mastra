@@ -1036,6 +1036,21 @@ export class Mastra<
       workspace: this.#workspace,
     });
 
+    // DI the mode agents so they have access to Mastra primitives (storage, logger, etc.).
+    // This is critical for features like tool approval which need agent.#mastra to load
+    // workflow snapshots. Static agents are DI'd here; dynamic agent functions are resolved
+    // at call time and must be DI'd by the caller.
+    const agents = this.#agents as Record<string, Agent<any>>;
+    for (const mode of harness.listModes()) {
+      if (typeof mode.agent !== 'function') {
+        const agent = mode.agent;
+        // Only DI if not already registered — addAgent skips duplicates
+        if (!agents[agent.id]) {
+          this.addAgent(agent);
+        }
+      }
+    }
+
     this.#harnesses[harnessKey] = harness;
   }
 

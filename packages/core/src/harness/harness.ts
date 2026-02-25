@@ -96,9 +96,19 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
   private sessionGrantedTools = new Set<string>();
   private displayState: HarnessDisplayState = defaultDisplayState();
 
-  // DI fields — set by Mastra when the harness is registered via addHarness()
+  // DI fields — set by Mastra when the harness is registered via addHarness(),
+  // or by ensureInternalMastra() for standalone usage.
   private mastra: any | undefined = undefined;
   private logger: IMastraLogger | undefined = undefined;
+
+  /**
+   * Returns the Mastra instance this harness is registered with (or the
+   * internal one created during `init()` for standalone usage). Returns
+   * `undefined` before `init()` is called on a standalone harness.
+   */
+  getMastra(): any | undefined {
+    return this.mastra;
+  }
 
   constructor(config: HarnessConfig<TState>) {
     this.id = config.id;
@@ -170,6 +180,13 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
         this.emit({ type: 'workspace_status_changed', status: 'error', error: err });
         this.emit({ type: 'workspace_error', error: err });
       }
+    }
+
+    // If not registered with a Mastra instance, create a minimal one internally.
+    // Agents need a Mastra back-reference for features like tool approval (resumeStream
+    // loads workflow snapshots via agent.#mastra.getStorage()).
+    if (!this.mastra) {
+      await this.ensureInternalMastra();
     }
 
     // Propagate harness-level memory and workspace to mode agents (after workspace init)
@@ -350,7 +367,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
   /**
    * Get the agent for the current mode.
    */
-  private getCurrentAgent(): Agent {
+  getCurrentAgent(): Agent {
     const mode = this.getCurrentMode();
     if (typeof mode.agent === 'function') {
       return mode.agent(this.state);
@@ -2539,6 +2556,36 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       return this.config.idGenerator();
     }
     return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+
+  // ===========================================================================
+  // Internal Mastra (standalone mode)
+  // ===========================================================================
+
+  /**
+   * Creates a minimal Mastra instance internally when the Harness is used standalone
+   * (not registered with an external Mastra via addHarness). This ensures mode agents
+   * receive the DI they need for features like tool approval, which requires
+   * agent.#mastra.getStorage() to load workflow snapshots.
+   */
+  private async ensureInternalMastra(): Promise<void> {
+    // Lazy import to avoid circular dependency (Mastra imports Harness as a type)
+    const { Mastra } = await import('../mastra/index.js');
+
+    // Collect static agents from modes
+    const agents: Record<string, Agent<any>> = {};
+    for (const mode of this.config.modes) {
+      if (typeof mode.agent !== 'function') {
+        agents[mode.agent.id] = mode.agent;
+      }
+    }
+
+    const internalMastra = new Mastra({
+      storage: this.config.storage,
+      agents,
+    });
+
+    this.mastra = internalMastra;
   }
 
   // ===========================================================================

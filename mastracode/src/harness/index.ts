@@ -170,6 +170,7 @@ export async function createHarness({ authStorage, config }: { authStorage: Auth
     const harness = new Harness({
         id: 'mastra-code',
         resourceId: project.resourceId,
+        storage,
         memory,
         stateSchema,
         subagents,
@@ -211,8 +212,6 @@ export async function createHarness({ authStorage, config }: { authStorage: Auth
     return {
         harness,
         storageWarning,
-        storage,
-        codingAgent: codeAgentInstance,
         mcpManager,
         hookManager,
     };
