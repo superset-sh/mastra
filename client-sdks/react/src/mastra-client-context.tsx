@@ -21,11 +21,22 @@ export const MastraClientProvider = ({ children, baseUrl, headers, apiPrefix }: 
 
 export const useMastraClient = () => useContext(MastraClientContext);
 
+export const isLocalUrl = (url?: string): boolean => {
+  if (!url) return true;
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
+
 const createMastraClient = (baseUrl?: string, mastraClientHeaders: Record<string, string> = {}, apiPrefix?: string) => {
   return new MastraClient({
     baseUrl: baseUrl || '',
-    // only add the header if the baseUrl is not provided i.e it's a local dev environment
-    headers: !baseUrl ? { ...mastraClientHeaders, 'x-mastra-dev-playground': 'true' } : mastraClientHeaders,
+    headers: isLocalUrl(baseUrl)
+      ? { ...mastraClientHeaders, 'x-mastra-dev-playground': 'true' }
+      : mastraClientHeaders,
     apiPrefix,
   });
 };

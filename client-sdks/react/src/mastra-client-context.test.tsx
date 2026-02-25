@@ -1,0 +1,38 @@
+import { describe, expect, it } from 'vitest';
+import React from 'react';
+
+import { isLocalUrl } from './mastra-client-context';
+
+describe('isLocalUrl', () => {
+  it('should return true when baseUrl is undefined', () => {
+    expect(isLocalUrl(undefined)).toBe(true);
+  });
+
+  it('should return true when baseUrl is empty string', () => {
+    expect(isLocalUrl('')).toBe(true);
+  });
+
+  it('should return true for localhost URLs', () => {
+    expect(isLocalUrl('http://localhost:4000')).toBe(true);
+    expect(isLocalUrl('http://localhost:4111')).toBe(true);
+    expect(isLocalUrl('http://localhost')).toBe(true);
+    expect(isLocalUrl('https://localhost:3000')).toBe(true);
+  });
+
+  it('should return true for 127.0.0.1 URLs', () => {
+    expect(isLocalUrl('http://127.0.0.1:4000')).toBe(true);
+    expect(isLocalUrl('http://127.0.0.1:4111')).toBe(true);
+    expect(isLocalUrl('http://127.0.0.1')).toBe(true);
+  });
+
+  it('should return false for remote URLs', () => {
+    expect(isLocalUrl('https://api.example.com')).toBe(false);
+    expect(isLocalUrl('https://my-app.vercel.app')).toBe(false);
+    expect(isLocalUrl('http://192.168.1.100:4000')).toBe(false);
+  });
+
+  it('should return false for URLs that contain localhost as a substring of a domain', () => {
+    expect(isLocalUrl('https://notlocalhost.com')).toBe(false);
+    expect(isLocalUrl('https://localhost.evil.com')).toBe(false);
+  });
+});
