@@ -633,7 +633,70 @@ export async function createNetworkLoop({
         onAbort,
       };
 
-      const result = await tryGenerateWithJsonFallback(routingAgent, prompt, options);
+      let result;
+      try {
+        result = await tryGenerateWithJsonFallback(routingAgent, prompt, options);
+      } catch (error) {
+        // If the abort signal fired during the routing LLM call, return an abort result
+        // instead of re-throwing or attempting a fallback
+        if (abortSignal?.aborted) {
+          await onAbort?.({
+            primitiveType: 'routing',
+            primitiveId: 'routing-agent',
+            iteration: iterationCount,
+          });
+          await writer?.write({
+            type: 'routing-agent-abort',
+            runId,
+            from: ChunkFrom.NETWORK,
+            payload: {
+              primitiveType: 'routing',
+              primitiveId: 'routing-agent',
+            },
+          });
+          return {
+            task: inputData.task,
+            primitiveId: 'none',
+            primitiveType: 'none' as const,
+            prompt: '',
+            result: 'Aborted',
+            isComplete: true,
+            selectionReason: 'Aborted',
+            iteration: iterationCount,
+            conversationContext: [],
+          };
+        }
+        throw error;
+      }
+
+      // Check if signal was aborted during routing LLM call
+      if (abortSignal?.aborted) {
+        await onAbort?.({
+          primitiveType: 'routing',
+          primitiveId: 'routing-agent',
+          iteration: iterationCount,
+        });
+        await writer?.write({
+          type: 'routing-agent-abort',
+          runId,
+          from: ChunkFrom.NETWORK,
+          payload: {
+            primitiveType: 'routing',
+            primitiveId: 'routing-agent',
+          },
+        });
+        return {
+          task: inputData.task,
+          primitiveId: 'none',
+          primitiveType: 'none' as const,
+          prompt: '',
+          result: 'Aborted',
+          isComplete: true,
+          selectionReason: 'Aborted',
+          iteration: iterationCount,
+          conversationContext: [],
+        };
+      }
 
       const object = await result.object;
 
@@ -882,8 +945,26 @@ export async function createNetworkLoop({
         finalText = finalText + '\n\nTool call was not approved by the user';
       }
 
+      // When the sub-agent was aborted, skip saving partial results to memory
+      // and return immediately with the abort event
       if (agentCallAborted) {
-        finalText = 'Aborted';
+        await writer?.write({
+          type: 'agent-execution-abort',
+          runId,
+          from: ChunkFrom.NETWORK,
+          payload: {
+            primitiveType: 'agent',
+            primitiveId: inputData.primitiveId,
+          },
+        });
+        return {
+          task: inputData.task,
+          primitiveId: inputData.primitiveId,
+          primitiveType: inputData.primitiveType,
+          result: 'Aborted',
+          isComplete: true,
+          iteration: inputData.iteration,
+        };
       }
 
       await saveMessagesWithProcessors(
@@ -929,26 +1010,6 @@ export async function createNetworkLoop({
         processorRunner,
         { requestContext },
       );
-
-      if (agentCallAborted) {
-        await writer?.write({
-          type: 'agent-execution-abort',
-          runId,
-          from: ChunkFrom.NETWORK,
-          payload: {
-            primitiveType: 'agent',
-            primitiveId: inputData.primitiveId,
-          },
-        });
-        return {
-          task: inputData.task,
-          primitiveId: inputData.primitiveId,
-          primitiveType: inputData.primitiveType,
-          result: 'Aborted',
-          isComplete: true,
-          iteration: inputData.iteration,
-        };
-      }
 
       if (requireApprovalMetadata || suspendedTools) {
         await writer.write({
@@ -1232,6 +1293,28 @@ export async function createNetworkLoop({
 
       const memory = await agent.getMemory({ requestContext: requestContext });
       const initData = await getInitData<{ threadId: string; threadResourceId: string }>();
+
+      // When the workflow was cancelled due to abort, skip saving results to memory
+      if (workflowCancelled && abortSignal?.aborted) {
+        await writer?.write({
+          type: 'workflow-execution-abort',
+          runId,
+          from: ChunkFrom.NETWORK,
+          payload: {
+            primitiveType: 'workflow',
+            primitiveId: inputData.primitiveId,
+          },
+        });
+        return {
+          task: inputData.task,
+          primitiveId: inputData.primitiveId,
+          primitiveType: inputData.primitiveType,
+          result: 'Aborted',
+          isComplete: true,
+          iteration: inputData.iteration,
+        };
+      }
+
       await saveMessagesWithProcessors(
         memory,
         [
@@ -1279,26 +1362,6 @@ export async function createNetworkLoop({
         processorRunner,
         { requestContext },
       );
-
-      if (workflowCancelled && abortSignal?.aborted) {
-        await writer?.write({
-          type: 'workflow-execution-abort',
-          runId,
-          from: ChunkFrom.NETWORK,
-          payload: {
-            primitiveType: 'workflow',
-            primitiveId: inputData.primitiveId,
-          },
-        });
-        return {
-          task: inputData.task,
-          primitiveId: inputData.primitiveId,
-          primitiveType: inputData.primitiveType,
-          result: 'Aborted',
-          isComplete: true,
-          iteration: inputData.iteration,
-        };
-      }
 
       if (suspendPayload) {
         await writer?.write({
@@ -1639,6 +1702,32 @@ export async function createNetworkLoop({
         }
       }
 
+      // Check if abort fired during setup (tool lookup, input parsing, approval checks)
+      if (abortSignal?.aborted) {
+        await onAbort?.({
+          primitiveType: 'tool',
+          primitiveId: inputData.primitiveId,
+          iteration: inputData.iteration,
+        });
+        await writer?.write({
+          type: 'tool-execution-abort',
+          runId,
+          from: ChunkFrom.NETWORK,
+          payload: {
+            primitiveType: 'tool',
+            primitiveId: inputData.primitiveId,
+          },
+        });
+        return {
+          task: inputData.task,
+          primitiveId: inputData.primitiveId,
+          primitiveType: inputData.primitiveType,
+          result: 'Aborted',
+          isComplete: true,
+          iteration: inputData.iteration,
+        };
+      }
+
       let toolSuspendPayload: any;
 
       const finalResult = await tool.execute(
@@ -1753,47 +1842,7 @@ export async function createNetworkLoop({
             primitiveId: inputData.primitiveId,
           },
         });
-        await saveMessagesWithProcessors(
-          memory,
-          [
-            {
-              id: generateId({
-                idType: 'message',
-                source: 'agent',
-                entityId: toolId,
-                threadId: initData.threadId,
-                resourceId: initData.threadResourceId || networkName,
-                role: 'assistant',
-              }),
-              type: 'text',
-              role: 'assistant',
-              content: {
-                parts: [
-                  {
-                    type: 'text',
-                    text: JSON.stringify({
-                      isNetwork: true,
-                      selectionReason: inputData.selectionReason,
-                      primitiveType: inputData.primitiveType,
-                      primitiveId: toolId,
-                      finalResult: { result: 'Aborted', toolCallId },
-                      input: inputDataToUse,
-                    }),
-                  },
-                ],
-                format: 2,
-                metadata: {
-                  mode: 'network',
-                },
-              },
-              createdAt: new Date(),
-              threadId: initData.threadId || runId,
-              resourceId: initData.threadResourceId || networkName,
-            },
-          ] as MastraDBMessage[],
-          processorRunner,
-          { requestContext },
-        );
+        // Skip saving aborted results to memory
         return {
           task: inputData.task,
           primitiveId: inputData.primitiveId,
