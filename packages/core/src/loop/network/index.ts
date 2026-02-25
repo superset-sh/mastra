@@ -1564,6 +1564,31 @@ export async function createNetworkLoop({
       }
 
       if (toolRequiresApproval) {
+        // Check if abort fired before writing approval metadata or suspending
+        if (abortSignal?.aborted) {
+          await onAbort?.({
+            primitiveType: 'tool',
+            primitiveId: inputData.primitiveId,
+            iteration: inputData.iteration,
+          });
+          await writer?.write({
+            type: 'tool-execution-abort',
+            runId,
+            from: ChunkFrom.NETWORK,
+            payload: {
+              primitiveType: 'tool',
+              primitiveId: inputData.primitiveId,
+            },
+          });
+          return {
+            task: inputData.task,
+            primitiveId: inputData.primitiveId,
+            primitiveType: inputData.primitiveType,
+            result: 'Aborted',
+            isComplete: true,
+            iteration: inputData.iteration,
+          };
+        }
         if (!resumeData) {
           const requireApprovalResumeSchema = JSON.stringify(
             zodToJsonSchema(
