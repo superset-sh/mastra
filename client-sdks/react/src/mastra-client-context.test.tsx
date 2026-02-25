@@ -25,6 +25,11 @@ describe('isLocalUrl', () => {
     expect(isLocalUrl('http://127.0.0.1')).toBe(true);
   });
 
+  it('should return true for IPv6 loopback URLs', () => {
+    expect(isLocalUrl('http://[::1]:4000')).toBe(true);
+    expect(isLocalUrl('http://[::1]')).toBe(true);
+  });
+
   it('should return false for remote URLs', () => {
     expect(isLocalUrl('https://api.example.com')).toBe(false);
     expect(isLocalUrl('https://my-app.vercel.app')).toBe(false);
