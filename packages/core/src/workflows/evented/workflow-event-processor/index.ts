@@ -1592,26 +1592,33 @@ export class WorkflowEventProcessor extends EventProcessor {
     stepResults = { ...stepResults, __state: currentState };
 
     if (!prevResult?.status || prevResult.status === 'failed') {
-      await this.mastra.pubsub.publish('workflows', {
-        type: 'workflow.fail',
-        runId,
-        data: {
-          workflowId,
-          runId,
-          executionPath,
-          resumeSteps,
-          parentWorkflow,
-          stepResults,
-          timeTravel,
-          prevResult,
-          activeSteps,
-          requestContext,
-          state: currentState,
-          outputOptions,
-        },
-      });
+      // In allSettled mode, don't fail the workflow — let the parallel aggregation handle it
+      const parentEntry = workflow.stepGraph[executionPath[0]!];
+      const isAllSettled =
+        parentEntry?.type === 'parallel' && executionPath.length > 1 && parentEntry.mode === 'allSettled';
 
-      return;
+      if (!isAllSettled) {
+        await this.mastra.pubsub.publish('workflows', {
+          type: 'workflow.fail',
+          runId,
+          data: {
+            workflowId,
+            runId,
+            executionPath,
+            resumeSteps,
+            parentWorkflow,
+            stepResults,
+            timeTravel,
+            prevResult,
+            activeSteps,
+            requestContext,
+            state: currentState,
+            outputOptions,
+          },
+        });
+
+        return;
+      }
     } else if (prevResult.status === 'suspended') {
       const suspendedPaths: Record<string, number[]> = {};
       const suspendedStep = getStep(workflow, executionPath);
@@ -1751,6 +1758,7 @@ export class WorkflowEventProcessor extends EventProcessor {
       }
     } else if ((step?.type === 'parallel' || step?.type === 'conditional') && executionPath.length > 1) {
       let skippedCount = 0;
+      let failedCount = 0;
       const allResults: Record<string, any> = step.steps.reduce(
         (acc, step) => {
           if (isExecutableStep(step)) {
@@ -1760,6 +1768,8 @@ export class WorkflowEventProcessor extends EventProcessor {
               // @ts-expect-error - skipped status not in type
             } else if (res?.status === 'skipped') {
               skippedCount++;
+            } else if (res && res.status === 'failed') {
+              failedCount++;
             }
           }
 
@@ -1769,7 +1779,7 @@ export class WorkflowEventProcessor extends EventProcessor {
       );
 
       const keys = Object.keys(allResults);
-      if (keys.length + skippedCount < step.steps.length) {
+      if (keys.length + skippedCount + failedCount < step.steps.length) {
         return;
       }
 

@@ -179,6 +179,68 @@ Visit [Choosing the right pattern](#choosing-the-right-pattern) to understand wh
 
 :::
 
+### Handling failures with `allSettled` mode
+
+By default, `.parallel()` uses `'all'` mode, which fails the entire parallel block if any step throws an error. Use `{ mode: 'allSettled' }` to allow the workflow to continue even when individual steps fail. Failed steps are excluded from the output, while successful steps' results are preserved.
+
+This is useful when running steps that may independently fail — for example, multiple research agents where some may encounter expired auth tokens or unavailable services — and you want to continue with whatever results are available.
+
+```typescript title="src/mastra/workflows/test-workflow.ts"
+const researcherA = createStep({
+  id: 'researcher-a',
+  inputSchema: z.any(),
+  outputSchema: z.object({ brief: z.string() }),
+  execute: async () => ({ brief: 'GitHub activity found' }),
+})
+
+const researcherB = createStep({
+  id: 'researcher-b',
+  inputSchema: z.any(),
+  outputSchema: z.object({ brief: z.string() }),
+  execute: async () => {
+    throw new Error('Auth token expired')
+  },
+})
+
+const researcherC = createStep({
+  id: 'researcher-c',
+  inputSchema: z.any(),
+  outputSchema: z.object({ brief: z.string() }),
+  execute: async () => ({ brief: 'Slack messages found' }),
+})
+
+const writerStep = createStep({
+  id: 'writer',
+  inputSchema: z.any(),
+  outputSchema: z.object({ synthesis: z.string() }),
+  execute: async ({ inputData }) => {
+    // inputData contains only successful results:
+    // { 'researcher-a': { brief: '...' }, 'researcher-c': { brief: '...' } }
+    // 'researcher-b' is missing because it failed
+    const briefs = Object.values(inputData)
+      .filter((v: any) => v && typeof v === 'object' && 'brief' in v)
+      .map((v: any) => v.brief)
+    return { synthesis: briefs.join('; ') }
+  },
+})
+
+export const testWorkflow = createWorkflow({
+  id: 'resilient-research',
+  inputSchema: z.any(),
+  outputSchema: z.any(),
+})
+  .parallel([researcherA, researcherB, researcherC], { mode: 'allSettled' })
+  .then(writerStep)
+  .commit()
+```
+
+**Key points:**
+
+- `'all'` mode (default): any step failure fails the entire parallel block
+- `'allSettled'` mode: the block succeeds even if some or all steps fail
+- Failed steps are excluded from the output object — only successful steps appear as keys
+- Downstream steps should handle potentially missing keys from failed steps
+
 ## Conditional logic with `.branch()`
 
 Use `.branch()` to choose which step to run based on a condition. All steps in a branch need the same `inputSchema` and `outputSchema` because branching requires consistent schemas so workflows can follow different paths.
@@ -712,7 +774,7 @@ Use this section as a reference for selecting the appropriate control flow metho
 | Method | Purpose | Input | Output | Concurrency |
 | - | - | - | - | - |
 | `.then(step)` | Sequential processing | `T` | `U` | N/A (one at a time) |
-| `.parallel([a, b])` | Different operations on same input | `T` | `{ a: U, b: V }` | All run simultaneously |
+| `.parallel([a, b])` | Different operations on same input | `T` | `{ a: U, b: V }` | All run simultaneously (supports `allSettled` mode) |
 | `.foreach(step)` | Same operation on each array item | `T[]` | `U[]` | Configurable (default: 1) |
 | `.branch([...])` | Conditional path selection | `T` | `{ selectedStep: U }` | Only one branch runs |
 

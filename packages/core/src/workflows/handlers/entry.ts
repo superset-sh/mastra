@@ -26,7 +26,7 @@ function buildResumedBlockResult(
   entrySteps: StepFlowEntry[],
   stepResults: Record<string, StepResult<any, any, any, any>>,
   executionContext: ExecutionContext,
-  opts?: { onlyExecutedSteps?: boolean },
+  opts?: { onlyExecutedSteps?: boolean; mode?: 'all' | 'allSettled' },
 ): any {
   const stepsToCheck = opts?.onlyExecutedSteps
     ? entrySteps.filter(s => s.type === 'step' && stepResults[s.step.id] !== undefined)
@@ -35,6 +35,10 @@ function buildResumedBlockResult(
   const allComplete = stepsToCheck.every(s => {
     if (s.type === 'step') {
       const r = stepResults[s.step.id];
+      if (opts?.mode === 'allSettled') {
+        // In allSettled mode, both success and failed count as complete
+        return r && (r.status === 'success' || r.status === 'failed');
+      }
       return r && r.status === 'success';
     }
     return true;
@@ -263,7 +267,7 @@ export async function executeEntry(
     engine.applyMutableContext(executionContext, resumedStepResult.mutableContext);
     Object.assign(stepResults, resumedStepResult.stepResults);
 
-    execResults = buildResumedBlockResult(entry.steps, stepResults, executionContext);
+    execResults = buildResumedBlockResult(entry.steps, stepResults, executionContext, { mode: entry.mode });
 
     return {
       result: execResults,

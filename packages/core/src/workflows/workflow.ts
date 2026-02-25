@@ -1728,8 +1728,13 @@ export class Workflow<
         ? Step<string, SubsetOf<S, TState>, TPrevSchema, O, any, any, TEngineType>
         : `Error: Expected Step with state schema that is a subset of workflow state`;
     },
+    options?: { mode?: 'all' | 'allSettled' },
   ) {
-    this.stepFlow.push({ type: 'parallel', steps: steps.map(step => ({ type: 'step', step: step as any })) });
+    this.stepFlow.push({
+      type: 'parallel',
+      steps: steps.map(step => ({ type: 'step', step: step as any })),
+      mode: options?.mode,
+    });
     this.serializedStepFlow.push({
       type: 'parallel',
       steps: steps.map((step: any) => ({
@@ -1743,6 +1748,7 @@ export class Workflow<
           canSuspend: Boolean(step.suspendSchema || step.resumeSchema),
         },
       })),
+      mode: options?.mode,
     });
     steps.forEach((step: any) => {
       this.steps[step.id] = step;

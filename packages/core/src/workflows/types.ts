@@ -459,6 +459,7 @@ export type StepFlowEntry<TEngineType = DefaultEngineType> =
   | {
       type: 'parallel';
       steps: { type: 'step'; step: Step }[];
+      mode?: 'all' | 'allSettled';
     }
   | {
       type: 'conditional';
@@ -514,6 +515,7 @@ export type SerializedStepFlowEntry =
         type: 'step';
         step: SerializedStep;
       }[];
+      mode?: 'all' | 'allSettled';
     }
   | {
       type: 'conditional';

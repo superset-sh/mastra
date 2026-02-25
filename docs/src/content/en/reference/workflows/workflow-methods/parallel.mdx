@@ -15,6 +15,12 @@ The `.parallel()` method executes multiple steps in parallel.
 workflow.parallel([step1, step2])
 ```
 
+With `allSettled` mode to continue even when individual steps fail:
+
+```typescript
+workflow.parallel([step1, step2], { mode: 'allSettled' })
+```
+
 ## Parameters
 
 <PropertiesTable
@@ -24,6 +30,19 @@ name: "steps",
 type: "Step[]",
 description: "The step instances to execute in parallel",
 isOptional: false,
+},
+{
+name: "options",
+type: "object",
+description: "Configuration options for parallel execution",
+isOptional: true,
+},
+{
+name: "options.mode",
+type: "'all' | 'allSettled'",
+description: "Controls failure behavior. `'all'` (default) fails the entire block if any step fails. `'allSettled'` allows the workflow to continue even when individual steps fail — failed steps are excluded from the output while successful steps' results are preserved.",
+isOptional: true,
+defaultValue: "'all'",
 },
 ]}
 />

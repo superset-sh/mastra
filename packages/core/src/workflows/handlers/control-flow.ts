@@ -35,6 +35,7 @@ export interface ExecuteParallelParams {
       type: 'step';
       step: Step;
     }[];
+    mode?: 'all' | 'allSettled';
   };
   serializedStepGraph: SerializedStepFlowEntry[];
   prevStep: StepFlowEntry;
@@ -180,7 +181,7 @@ export async function executeParallel(
   const hasFailed = results.find(result => result.status === 'failed') as StepFailure<any, any, any, any>;
 
   const hasSuspended = results.find(result => result.status === 'suspended');
-  if (hasFailed) {
+  if (hasFailed && entry.mode !== 'allSettled') {
     // Preserve tripwire property for proper status conversion in fmtReturnValue
     execResults = {
       status: 'failed',
