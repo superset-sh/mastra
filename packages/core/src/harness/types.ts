@@ -124,8 +124,8 @@ export interface HarnessConfig<TState extends HarnessStateSchema = HarnessStateS
   /** Initial state values (must conform to schema) */
   initialState?: Partial<z.infer<TState>>;
 
-  /** Memory configuration (shared across all modes) */
-  memory?: MastraMemory;
+  /** Memory configuration (shared across all modes). Accepts a static instance or a dynamic factory. */
+  memory?: DynamicArgument<MastraMemory>;
 
   /** Available agent modes */
   modes: HarnessMode<TState>[];
