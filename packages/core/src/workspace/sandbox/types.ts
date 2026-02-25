@@ -15,7 +15,7 @@ import type { ProviderStatus } from '../lifecycle';
 /**
  * State of a mount in the sandbox.
  */
-export type MountState = 'pending' | 'mounting' | 'mounted' | 'error' | 'unsupported';
+export type MountState = 'pending' | 'mounting' | 'mounted' | 'error' | 'unsupported' | 'unavailable';
 
 /**
  * Entry representing a mount in the sandbox.
@@ -121,3 +121,21 @@ export interface SandboxInfo {
 
 /** Sandbox operation types for timeout errors */
 export type SandboxOperation = 'command' | 'sync' | 'install';
+
+// =============================================================================
+// Mount Errors
+// =============================================================================
+
+/**
+ * Error thrown when a required FUSE tool (s3fs, gcsfuse, macFUSE) is not installed.
+ *
+ * Distinguished from general mount errors so `LocalSandbox.mount()` can mark the
+ * mount as `unavailable` (warning) rather than `error`. The workspace still works
+ * via SDK filesystem methods — only sandbox process access to the mount path is affected.
+ */
+export class MountToolNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MountToolNotFoundError';
+  }
+}

@@ -810,6 +810,397 @@ describe('LocalSandbox', () => {
       await bwrapSandbox._destroy();
     });
   });
+
+  // ===========================================================================
+  // Mount Operations (symlink-only)
+  // ===========================================================================
+  describe('mount operations', () => {
+    let mountSandbox: LocalSandbox;
+    let mountDir: string;
+
+    function makeMockLocalFs(basePath: string, overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'test-local',
+        provider: 'local',
+        getMountConfig: () => ({ type: 'local' as const, basePath }),
+        readFile: vi.fn(),
+        writeFile: vi.fn(),
+        deleteFile: vi.fn(),
+        listFiles: vi.fn(),
+        stat: vi.fn(),
+        exists: vi.fn(),
+        getInstructions: vi.fn(),
+        init: vi.fn(),
+        ...overrides,
+      };
+    }
+
+    beforeEach(async () => {
+      mountDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mastra-mount-test-'));
+      mountSandbox = new LocalSandbox({ workingDirectory: mountDir });
+      await mountSandbox._start();
+    });
+
+    afterEach(async () => {
+      vi.restoreAllMocks();
+      try {
+        // Clear active mount paths so destroy doesn't try to unmount
+        (mountSandbox as any)._activeMountPaths.clear();
+        mountSandbox.mounts.clear();
+        await mountSandbox._destroy();
+      } catch {
+        // Ignore
+      }
+      try {
+        await fs.rm(mountDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    });
+
+    it('should have a MountManager (because mount() is defined)', () => {
+      expect(mountSandbox.mounts).toBeDefined();
+    });
+
+    it('should create symlink for local filesystem mount', async () => {
+      // Create a source directory with a file
+      const sourceDir = path.join(mountDir, 'local-source');
+      await fs.mkdir(sourceDir, { recursive: true });
+      await fs.writeFile(path.join(sourceDir, 'test.txt'), 'hello from local');
+
+      const mountPath = '/local-data';
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+
+      expect(result.success).toBe(true);
+      expect(result.mountPath).toBe(mountPath);
+
+      // Verify symlink was created
+      const hostPath = path.join(mountDir, 'local-data');
+      const stats = await fs.lstat(hostPath);
+      expect(stats.isSymbolicLink()).toBe(true);
+
+      // Verify symlink target
+      const target = await fs.readlink(hostPath);
+      expect(target).toBe(sourceDir);
+
+      // Verify files are accessible through symlink
+      const content = await fs.readFile(path.join(hostPath, 'test.txt'), 'utf-8');
+      expect(content).toBe('hello from local');
+    });
+
+    it('should reject invalid mount paths', async () => {
+      const sourceDir = path.join(mountDir, 'src');
+      await fs.mkdir(sourceDir, { recursive: true });
+      const mockFs = makeMockLocalFs(sourceDir);
+
+      await expect(mountSandbox.mount(mockFs as any, 'relative/path')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs as any, '/tmp/bad path')).rejects.toThrow('Invalid mount path');
+    });
+
+    it('should reject mount paths with path traversal segments', async () => {
+      const sourceDir = path.join(mountDir, 'src');
+      await fs.mkdir(sourceDir, { recursive: true });
+      const mockFs = makeMockLocalFs(sourceDir);
+
+      await expect(mountSandbox.mount(mockFs as any, '/data/../etc')).rejects.toThrow(
+        'Path segments cannot be "." or ".."',
+      );
+      await expect(mountSandbox.mount(mockFs as any, '/./data')).rejects.toThrow('Path segments cannot be "." or ".."');
+      await expect(mountSandbox.mount(mockFs as any, '/..')).rejects.toThrow('Path segments cannot be "." or ".."');
+    });
+
+    it('should return error for unsupported mount type', async () => {
+      const mountPath = '/ftp-data';
+      const result = await mountSandbox.mount(
+        {
+          ...makeMockLocalFs('/tmp'),
+          id: 'test-unknown',
+          provider: 'unknown',
+          getMountConfig: () => ({ type: 'ftp' }),
+        } as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Unsupported mount type');
+    });
+
+    it('should return error when filesystem has no mount config', async () => {
+      const mountPath = '/local';
+      const result = await mountSandbox.mount(
+        {
+          ...makeMockLocalFs('/tmp'),
+          id: 'test-no-config',
+          provider: 'local',
+          getMountConfig: undefined,
+        } as any,
+        mountPath,
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('does not provide a mount config');
+    });
+
+    it('should reject non-empty directories', async () => {
+      // Pre-create a non-empty directory under working directory
+      const hostDir = path.join(mountDir, 'nonempty');
+      await fs.mkdir(hostDir, { recursive: true });
+      await fs.writeFile(path.join(hostDir, 'existing.txt'), 'content');
+
+      const sourceDir = path.join(mountDir, 'src-nonempty');
+      await fs.mkdir(sourceDir, { recursive: true });
+
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, '/nonempty');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not empty');
+    });
+
+    it('should detect existing symlink mounts (local) with matching config', async () => {
+      const mountPath = '/local-data';
+      const hostPath = path.join(mountDir, 'local-data');
+      const basePath = path.join(mountDir, 'source-dir');
+      const config = { type: 'local' as const, basePath };
+
+      // Create source directory and symlink (simulating a previous mount)
+      await fs.mkdir(basePath, { recursive: true });
+      await fs.writeFile(path.join(basePath, 'test.txt'), 'hello');
+      await fs.symlink(basePath, hostPath);
+
+      // Write a matching marker file
+      const markerFilename = mountSandbox.mounts.markerFilename(hostPath);
+      const configHash = mountSandbox.mounts.computeConfigHash(config);
+      const markerDir = '/tmp/.mastra-mounts';
+      await fs.mkdir(markerDir, { recursive: true });
+      await fs.writeFile(path.join(markerDir, markerFilename), `${hostPath}|${configHash}`);
+
+      try {
+        const result = await mountSandbox.mount(makeMockLocalFs(basePath) as any, mountPath);
+        expect(result.success).toBe(true);
+        // Symlink should still point to the source
+        const target = await fs.readlink(hostPath);
+        expect(target).toBe(basePath);
+      } finally {
+        await fs.unlink(path.join(markerDir, markerFilename)).catch(() => {});
+        await fs.unlink(hostPath).catch(() => {});
+      }
+    });
+
+    it('should refuse to replace a foreign symlink (no marker file)', async () => {
+      const mountPath = '/foreign-link';
+      const hostPath = path.join(mountDir, 'foreign-link');
+      const foreignTarget = path.join(mountDir, 'foreign-target');
+      const ourBasePath = path.join(mountDir, 'our-target');
+
+      // Create a symlink that someone else made (no marker file)
+      await fs.mkdir(foreignTarget, { recursive: true });
+      await fs.symlink(foreignTarget, hostPath);
+
+      try {
+        const result = await mountSandbox.mount(makeMockLocalFs(ourBasePath) as any, mountPath);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('not created by Mastra');
+      } finally {
+        await fs.unlink(hostPath).catch(() => {});
+      }
+    });
+
+    it('should not remove symlink target directory on unmount', async () => {
+      const sourceDir = path.join(mountDir, 'source-persist');
+      await fs.mkdir(sourceDir, { recursive: true });
+      await fs.writeFile(path.join(sourceDir, 'important.txt'), 'do not delete');
+
+      const mountPath = '/persist-test';
+      const hostPath = path.join(mountDir, 'persist-test');
+
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+      expect(result.success).toBe(true);
+
+      // Unmount — should remove the symlink, NOT the source directory
+      await mountSandbox.unmount(mountPath);
+
+      // Symlink should be gone
+      await expect(fs.lstat(hostPath)).rejects.toThrow();
+      // Source directory and its contents should be intact
+      const content = await fs.readFile(path.join(sourceDir, 'important.txt'), 'utf-8');
+      expect(content).toBe('do not delete');
+    });
+
+    it('should write marker file with correct format after successful mount', async () => {
+      const sourceDir = path.join(mountDir, 'marker-source');
+      await fs.mkdir(sourceDir, { recursive: true });
+
+      const mountPath = '/marker-test';
+      const hostPath = path.join(mountDir, 'marker-test');
+      const config = { type: 'local' as const, basePath: sourceDir };
+
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+      expect(result.success).toBe(true);
+
+      // Read and verify marker file
+      const markerFilename = mountSandbox.mounts.markerFilename(hostPath);
+      const markerPath = `/tmp/.mastra-mounts/${markerFilename}`;
+
+      try {
+        const content = await fs.readFile(markerPath, 'utf-8');
+        const parsed = mountSandbox.mounts.parseMarkerContent(content.trim());
+        expect(parsed).not.toBeNull();
+        expect(parsed!.path).toBe(hostPath);
+        // Config hash should match what we'd compute for the same config
+        const expectedHash = mountSandbox.mounts.computeConfigHash(config);
+        expect(parsed!.configHash).toBe(expectedHash);
+      } finally {
+        await fs.unlink(markerPath).catch(() => {});
+      }
+    });
+
+    it('should remount when our marker exists but config hash differs (symlink)', async () => {
+      const mountPath = '/local-data';
+      const hostPath = path.join(mountDir, 'local-data');
+      const oldBasePath = path.join(mountDir, 'old-source');
+      const newBasePath = path.join(mountDir, 'new-source');
+      const oldConfig = { type: 'local' as const, basePath: oldBasePath };
+
+      // Create both source directories
+      await fs.mkdir(oldBasePath, { recursive: true });
+      await fs.mkdir(newBasePath, { recursive: true });
+      await fs.writeFile(path.join(newBasePath, 'new.txt'), 'new content');
+
+      // Simulate previous mount: symlink + marker with old config
+      await fs.symlink(oldBasePath, hostPath);
+      const markerFilename = mountSandbox.mounts.markerFilename(hostPath);
+      const oldHash = mountSandbox.mounts.computeConfigHash(oldConfig);
+      const markerDir = '/tmp/.mastra-mounts';
+      await fs.mkdir(markerDir, { recursive: true });
+      await fs.writeFile(path.join(markerDir, markerFilename), `${hostPath}|${oldHash}`);
+
+      try {
+        const result = await mountSandbox.mount(makeMockLocalFs(newBasePath) as any, mountPath);
+        expect(result.success).toBe(true);
+
+        // Symlink should now point to the new source
+        const target = await fs.readlink(hostPath);
+        expect(target).toBe(newBasePath);
+
+        // New content should be accessible
+        const content = await fs.readFile(path.join(hostPath, 'new.txt'), 'utf-8');
+        expect(content).toBe('new content');
+      } finally {
+        await fs.unlink(path.join(markerDir, markerFilename)).catch(() => {});
+        await fs.unlink(hostPath).catch(() => {});
+      }
+    });
+
+    it('should resolve mount paths under workingDirectory only', () => {
+      const hostPath = mountSandbox['resolveHostPath']('/local');
+      expect(hostPath).toBe(path.join(mountDir, 'local'));
+
+      const nestedPath = mountSandbox['resolveHostPath']('/deep/nested/mount');
+      expect(nestedPath).toBe(path.join(mountDir, 'deep/nested/mount'));
+
+      // Leading slashes are stripped — paths always resolve under workingDirectory
+      const multiSlash = mountSandbox['resolveHostPath']('///triple');
+      expect(multiSlash).toBe(path.join(mountDir, 'triple'));
+    });
+
+    it('should handle unmount of non-existent mount path gracefully', async () => {
+      // Unmounting a path that was never mounted should not throw
+      await expect(mountSandbox.unmount('/never-mounted')).resolves.not.toThrow();
+    });
+
+    it('should unmount all active symlink mounts on stop()', async () => {
+      const sourceA = path.join(mountDir, 'src-a');
+      const sourceB = path.join(mountDir, 'src-b');
+      await fs.mkdir(sourceA, { recursive: true });
+      await fs.mkdir(sourceB, { recursive: true });
+
+      await mountSandbox.mount(makeMockLocalFs(sourceA, { id: 'a' }) as any, '/mount-a');
+      await mountSandbox.mount(makeMockLocalFs(sourceB, { id: 'b' }) as any, '/mount-b');
+
+      expect(mountSandbox['_activeMountPaths'].size).toBe(2);
+
+      await mountSandbox.stop();
+      expect(mountSandbox['_activeMountPaths'].size).toBe(0);
+
+      // Symlinks should be cleaned up
+      await expect(fs.lstat(path.join(mountDir, 'mount-a'))).rejects.toThrow();
+      await expect(fs.lstat(path.join(mountDir, 'mount-b'))).rejects.toThrow();
+    });
+
+    it('should unmount all active symlink mounts on destroy()', async () => {
+      const source = path.join(mountDir, 'src-destroy');
+      await fs.mkdir(source, { recursive: true });
+
+      await mountSandbox.mount(makeMockLocalFs(source) as any, '/destroy-mount');
+
+      expect(mountSandbox['_activeMountPaths'].size).toBe(1);
+
+      await mountSandbox.destroy();
+      expect(mountSandbox['_activeMountPaths'].size).toBe(0);
+    });
+
+    it('should add mount path to seatbelt isolation readWritePaths', async () => {
+      if (os.platform() !== 'darwin') return;
+
+      const seatbeltSandbox = new LocalSandbox({
+        workingDirectory: mountDir,
+        isolation: 'seatbelt',
+      });
+      await seatbeltSandbox._start();
+
+      const source = path.join(mountDir, 'seatbelt-source');
+      await fs.mkdir(source, { recursive: true });
+
+      const mountPath = '/seatbelt-test';
+      await seatbeltSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+
+      const info = await seatbeltSandbox.getInfo();
+      const isoConfig = info.metadata?.isolationConfig as { readWritePaths?: string[] } | undefined;
+      // Isolation allowlist uses the resolved host path
+      expect(isoConfig?.readWritePaths).toEqual(expect.arrayContaining([path.join(mountDir, 'seatbelt-test')]));
+
+      // Clear before destroy
+      (seatbeltSandbox as any)._activeMountPaths.clear();
+      seatbeltSandbox.mounts.clear();
+      await seatbeltSandbox._destroy();
+    });
+
+    it('should block mounting over a regular file', async () => {
+      const mountPath = '/file-conflict';
+      const hostPath = path.join(mountDir, 'file-conflict');
+      await fs.writeFile(hostPath, 'i am a file');
+
+      const source = path.join(mountDir, 'src-conflict');
+      await fs.mkdir(source, { recursive: true });
+
+      const result = await mountSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+
+      expect(result.success).toBe(false);
+
+      // The file should still be intact
+      const content = await fs.readFile(hostPath, 'utf-8');
+      expect(content).toBe('i am a file');
+    });
+
+    it('should not mount over a non-empty directory with hidden files', async () => {
+      const mountPath = '/hidden-files';
+      const hostPath = path.join(mountDir, 'hidden-files');
+      await fs.mkdir(hostPath, { recursive: true });
+      await fs.writeFile(path.join(hostPath, '.hidden'), 'secret');
+
+      const source = path.join(mountDir, 'src-hidden');
+      await fs.mkdir(source, { recursive: true });
+
+      const result = await mountSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not empty');
+
+      // Hidden file should still be there
+      const content = await fs.readFile(path.join(hostPath, '.hidden'), 'utf-8');
+      expect(content).toBe('secret');
+    });
+  });
 });
 
 /**

@@ -13,6 +13,7 @@ import type { FilesystemMountConfig, MountResult } from '../filesystem/mount';
 
 import type { Workspace } from '../workspace';
 import type { WorkspaceSandbox } from './sandbox';
+import { MountToolNotFoundError } from './types';
 import type { MountEntry, MountState } from './types';
 
 // Type-only import — erased at compile time, no circular dependency at runtime.
@@ -313,15 +314,25 @@ export class MountManager {
         if (result.success) {
           entry.state = 'mounted';
           this.logger.info(`Mount successful`, { path, provider: fsProvider });
+        } else if (result.unavailable) {
+          entry.state = 'unavailable';
+          entry.error = result.error ?? 'FUSE tool not installed';
+          this.logger.warn(`FUSE mount unavailable`, { path, provider: fsProvider, error: entry.error });
         } else {
           entry.state = 'error';
           entry.error = result.error ?? 'Mount failed';
           this.logger.error(`Mount failed`, { path, provider: fsProvider, error: entry.error });
         }
       } catch (err) {
-        entry.state = 'error';
-        entry.error = String(err);
-        this.logger.error(`Mount threw error`, { path, provider: fsProvider, error: entry.error });
+        if (err instanceof MountToolNotFoundError) {
+          entry.state = 'unavailable';
+          entry.error = String(err);
+          this.logger.warn(`FUSE mount unavailable`, { path, provider: fsProvider, error: entry.error });
+        } else {
+          entry.state = 'error';
+          entry.error = String(err);
+          this.logger.error(`Mount threw error`, { path, provider: fsProvider, error: entry.error });
+        }
       }
     }
   }
