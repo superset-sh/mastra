@@ -25,7 +25,7 @@ export interface MountEntry {
   filesystem: WorkspaceFilesystem;
   /** Current state of the mount */
   state: MountState;
-  /** Error message if state is 'error' */
+  /** Error message if state is 'error' or 'unavailable' */
   error?: string;
   /** Resolved mount config from filesystem.getMountConfig() */
   config?: FilesystemMountConfig;

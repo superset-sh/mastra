@@ -8,8 +8,6 @@
 
 **Why:** Local sandboxes can now run commands against locally-mounted data without manual path workarounds.
 
-Related issues: COR-495, COR-554.
-
 **Usage example:**
 
 ```typescript

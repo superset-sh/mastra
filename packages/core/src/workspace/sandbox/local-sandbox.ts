@@ -41,6 +41,9 @@ import type { SandboxInfo } from './types';
 // Mount Path Validation
 // =============================================================================
 
+/** Directory for mount marker files used to detect config changes across restarts. */
+export const MARKER_DIR = path.join(os.tmpdir(), '.mastra-mounts');
+
 /** Allowlist pattern for mount paths — absolute path with safe characters only. */
 const SAFE_MOUNT_PATH = /^\/[a-zA-Z0-9_.\-/]+$/;
 
@@ -403,7 +406,7 @@ export class LocalSandbox extends MastraSandbox {
     }
 
     // Check if already mounted with matching config
-    const existingMount = await this.checkExistingMount(mountPath, hostPath, config);
+    const existingMount = await this.checkExistingMount(hostPath, config);
     if (existingMount === 'matching') {
       this.logger.debug(
         `[LocalSandbox] Detected existing mount for ${filesystem.provider} ("${filesystem.id}") at "${hostPath}" with correct config, skipping`,
@@ -434,9 +437,17 @@ export class LocalSandbox extends MastraSandbox {
         this.mounts.set(mountPath, { filesystem, state: 'error', config, error });
         return { success: false, mountPath, error };
       }
-    } catch {
+    } catch (err: unknown) {
+      const code = err instanceof Error && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
+      if (code === 'ENOTDIR') {
+        // Path is a regular file — fail with a clear message
+        const error = `Cannot mount at ${hostPath}: path is a regular file. Use a different mount path or remove the file first.`;
+        this.logger.error(`[LocalSandbox] ${error}`);
+        this.mounts.set(mountPath, { filesystem, state: 'error', config, error });
+        return { success: false, mountPath, error };
+      }
       // ENOENT: dir doesn't exist yet (mkdir below creates it)
-      // ENOTDIR / other: proceed; mkdir will surface the real error
+      // Other: proceed; mkdir will surface the real error
     }
 
     // Create mount directory under working directory
@@ -563,7 +574,7 @@ export class LocalSandbox extends MastraSandbox {
 
     // Clean up marker file
     const filename = this.mounts.markerFilename(hostPath);
-    const markerPath = `/tmp/.mastra-mounts/${filename}`;
+    const markerPath = path.join(MARKER_DIR, filename);
     try {
       await fs.unlink(markerPath);
     } catch {
@@ -664,11 +675,10 @@ export class LocalSandbox extends MastraSandbox {
 
     const filename = this.mounts.markerFilename(hostPath);
     const markerContent = `${hostPath}|${entry.configHash}`;
-    const markerDir = '/tmp/.mastra-mounts';
-    const markerFilePath = path.join(markerDir, filename);
+    const markerFilePath = path.join(MARKER_DIR, filename);
 
     try {
-      await fs.mkdir(markerDir, { recursive: true });
+      await fs.mkdir(MARKER_DIR, { recursive: true });
       await fs.writeFile(markerFilePath, markerContent, 'utf-8');
     } catch {
       this.logger.debug(`[LocalSandbox] Warning: Could not write marker file at ${markerFilePath}`);
@@ -680,7 +690,6 @@ export class LocalSandbox extends MastraSandbox {
    * Uses hostPath (resolved OS path) for checking the actual mount point.
    */
   private async checkExistingMount(
-    _mountPath: string,
     hostPath: string,
     newConfig: FilesystemMountConfig,
   ): Promise<'not_mounted' | 'matching' | 'mismatched' | 'foreign'> {
@@ -719,7 +728,7 @@ export class LocalSandbox extends MastraSandbox {
    */
   private async hasMarkerFile(hostPath: string): Promise<boolean> {
     const filename = this.mounts.markerFilename(hostPath);
-    const markerPath = `/tmp/.mastra-mounts/${filename}`;
+    const markerPath = path.join(MARKER_DIR, filename);
     try {
       await fs.access(markerPath);
       return true;
@@ -738,7 +747,7 @@ export class LocalSandbox extends MastraSandbox {
     newConfig: FilesystemMountConfig,
   ): Promise<'matching' | 'mismatched' | 'foreign'> {
     const filename = this.mounts.markerFilename(hostPath);
-    const markerPath = `/tmp/.mastra-mounts/${filename}`;
+    const markerPath = path.join(MARKER_DIR, filename);
 
     try {
       const content = await fs.readFile(markerPath, 'utf-8');
