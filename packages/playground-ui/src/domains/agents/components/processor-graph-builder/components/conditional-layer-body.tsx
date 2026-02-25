@@ -59,11 +59,7 @@ export function ConditionalLayerBody({ layer }: ConditionalLayerBodyProps) {
 
             <Droppable droppableId={`layer-${layer.id}-cond-${condIndex}`} type="PROVIDER">
               {(provided, snapshot) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className="flex flex-col gap-1 min-h-[60px]"
-                >
+                <div ref={provided.innerRef} {...provided.droppableProps} className="flex flex-col gap-1 min-h-[60px]">
                   {condition.steps.map((entry, stepIndex) => {
                     if (entry.type !== 'step') return null;
                     return (
@@ -77,7 +73,7 @@ export function ConditionalLayerBody({ layer }: ConditionalLayerBodyProps) {
                     );
                   })}
                   {condition.steps.length === 0 && <EmptySlot isDraggingOver={snapshot.isDraggingOver} />}
-                  {provided.placeholder}
+                  <div className="hidden">{provided.placeholder}</div>
                 </div>
               )}
             </Droppable>
@@ -86,11 +82,7 @@ export function ConditionalLayerBody({ layer }: ConditionalLayerBodyProps) {
       })}
 
       {!readOnly && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => builder.addCondition(layer.id)}
-        >
+        <Button variant="outline" size="sm" onClick={() => builder.addCondition(layer.id)}>
           <Plus className="h-3.5 w-3.5 mr-1.5" />
           Add condition
         </Button>

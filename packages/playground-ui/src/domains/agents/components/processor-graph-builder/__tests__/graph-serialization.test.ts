@@ -28,7 +28,12 @@ describe('graph-serialization', () => {
             type: 'parallel',
             branches: [
               [{ type: 'step', step: { id: 's1', providerId: 'a', config: {}, enabledPhases: ['processInput'] } }],
-              [{ type: 'step', step: { id: 's2', providerId: 'b', config: {}, enabledPhases: ['processOutputResult'] } }],
+              [
+                {
+                  type: 'step',
+                  step: { id: 's2', providerId: 'b', config: {}, enabledPhases: ['processOutputResult'] },
+                },
+              ],
             ],
           },
         ],
@@ -114,7 +119,12 @@ describe('graph-serialization', () => {
             type: 'parallel',
             branches: [
               [{ type: 'step', step: { id: 's1', providerId: 'a', config: {}, enabledPhases: ['processInput'] } }],
-              [{ type: 'step', step: { id: 's2', providerId: 'b', config: {}, enabledPhases: ['processOutputResult'] } }],
+              [
+                {
+                  type: 'step',
+                  step: { id: 's2', providerId: 'b', config: {}, enabledPhases: ['processOutputResult'] },
+                },
+              ],
             ],
           },
         ],

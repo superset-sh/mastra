@@ -85,11 +85,9 @@ export function ProcessorGraphDialog({
         variablesSchema={variablesSchema}
       >
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="relative flex-1 min-h-0">
-            <div className="absolute inset-0 grid grid-cols-[1fr_280px] overflow-hidden">
-              <ProcessorGraphCanvas />
-              <ProcessorProviderList />
-            </div>
+          <div className="grid grid-cols-[1fr_280px] grid-rows-[minmax(0,1fr)] overflow-hidden h-full">
+            <ProcessorGraphCanvas />
+            <ProcessorProviderList />
           </div>
         </DragDropContext>
       </ProcessorGraphBuilderProvider>

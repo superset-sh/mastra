@@ -1,8 +1,10 @@
 import { X } from 'lucide-react';
 import { Badge } from '@/ds/components/Badge';
 import { IconButton } from '@/ds/components/IconButton';
+import { Txt } from '@/ds/components/Txt';
 import { useProcessorGraphBuilderContext } from './processor-graph-builder-context';
 import type { ProcessorGraphStep, ProcessorPhase } from '../types';
+import { PHASE_SHORT_LABELS } from '../utils/phase-labels';
 
 interface ProcessorStepCardProps {
   layerId: string;
@@ -29,11 +31,13 @@ export function ProcessorStepCard({ layerId, step, branchIndex, conditionIndex, 
   return (
     <div className="flex items-center gap-2 rounded border border-border1 bg-surface3 p-2">
       <div className="flex-1 min-w-0">
-        <p className="text-ui-sm text-neutral5 truncate">{provider?.name ?? step.providerId}</p>
+        <Txt variant="ui-sm" className="text-neutral5 truncate">
+          {provider?.name ?? step.providerId}
+        </Txt>
         {step.enabledPhases.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {step.enabledPhases.map((phase: ProcessorPhase) => (
-              <Badge key={phase}>{phase.replace('process', '').toLowerCase()}</Badge>
+              <Badge key={phase}>{PHASE_SHORT_LABELS[phase] ?? phase}</Badge>
             ))}
           </div>
         )}

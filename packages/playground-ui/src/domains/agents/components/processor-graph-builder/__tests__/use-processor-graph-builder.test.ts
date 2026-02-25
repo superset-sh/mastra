@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type {
-  ProcessorGraphBuilderState,
-  ProcessorGraphBuilderAction,
-  ProcessorGraphStep,
-} from '../types';
+import type { ProcessorGraphBuilderState, ProcessorGraphBuilderAction, ProcessorGraphStep } from '../types';
 import { processorGraphBuilderReducer } from '../hooks/use-processor-graph-builder';
 
 function makeState(layers: ProcessorGraphBuilderState['layers'] = []): ProcessorGraphBuilderState {
@@ -102,9 +98,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('SET_STEP', () => {
     it('sets the step on a step layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'step', step: makeStep({ providerId: '' }) } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'step', step: makeStep({ providerId: '' }) } }]);
       const newStep = makeStep({ providerId: 'new-provider' });
       const next = processorGraphBuilderReducer(state, { type: 'SET_STEP', layerId: 'layer-1', step: newStep });
       if (next.layers[0]!.entry.type === 'step') {
@@ -113,9 +107,7 @@ describe('processorGraphBuilderReducer', () => {
     });
 
     it('ignores non-step layers', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'parallel', branches: [[]] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'parallel', branches: [[]] } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'SET_STEP',
         layerId: 'layer-1',
@@ -127,9 +119,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('UPDATE_STEP_CONFIG', () => {
     it('updates config on a step layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'step', step: makeStep() } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'step', step: makeStep() } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'UPDATE_STEP_CONFIG',
         layerId: 'layer-1',
@@ -143,9 +133,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('UPDATE_STEP_PHASES', () => {
     it('updates phases on a step layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'step', step: makeStep() } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'step', step: makeStep() } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'UPDATE_STEP_PHASES',
         layerId: 'layer-1',
@@ -159,9 +147,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('ADD_BRANCH', () => {
     it('adds a branch to a parallel layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'parallel', branches: [[]] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'parallel', branches: [[]] } }]);
       const next = processorGraphBuilderReducer(state, { type: 'ADD_BRANCH', layerId: 'layer-1' });
       if (next.layers[0]!.entry.type === 'parallel') {
         expect(next.layers[0]!.entry.branches).toHaveLength(2);
@@ -171,9 +157,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('REMOVE_BRANCH', () => {
     it('removes a branch from a parallel layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'parallel', branches: [[], []] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'parallel', branches: [[], []] } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'REMOVE_BRANCH',
         layerId: 'layer-1',
@@ -187,9 +171,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('ADD_STEP_TO_BRANCH', () => {
     it('adds a step to a parallel branch', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'parallel', branches: [[]] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'parallel', branches: [[]] } }]);
       const step = makeStep({ id: 'new-step' });
       const next = processorGraphBuilderReducer(state, {
         type: 'ADD_STEP_TO_BRANCH',
@@ -280,9 +262,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('ADD_STEP_TO_CONDITION', () => {
     it('adds a step to a condition', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } }]);
       const step = makeStep({ id: 'cond-step' });
       const next = processorGraphBuilderReducer(state, {
         type: 'ADD_STEP_TO_CONDITION',
@@ -299,9 +279,7 @@ describe('processorGraphBuilderReducer', () => {
     });
 
     it('ignores non-conditional layers', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'step', step: makeStep() } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'step', step: makeStep() } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'ADD_STEP_TO_CONDITION',
         layerId: 'layer-1',
@@ -336,9 +314,7 @@ describe('processorGraphBuilderReducer', () => {
     });
 
     it('ignores non-conditional layers', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'parallel', branches: [[]] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'parallel', branches: [[]] } }]);
       const next = processorGraphBuilderReducer(state, {
         type: 'REMOVE_STEP_FROM_CONDITION',
         layerId: 'layer-1',
@@ -351,9 +327,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('ADD_CONDITION', () => {
     it('adds a condition to a conditional layer', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } }]);
       const next = processorGraphBuilderReducer(state, { type: 'ADD_CONDITION', layerId: 'layer-1' });
       if (next.layers[0]!.entry.type === 'conditional') {
         expect(next.layers[0]!.entry.conditions).toHaveLength(2);
@@ -382,9 +356,7 @@ describe('processorGraphBuilderReducer', () => {
 
   describe('UPDATE_CONDITION_RULES', () => {
     it('updates rules on a condition', () => {
-      const state = makeState([
-        { id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } },
-      ]);
+      const state = makeState([{ id: 'layer-1', entry: { type: 'conditional', conditions: [{ steps: [] }] } }]);
       const rules = { operator: 'AND' as const, conditions: [{ field: 'x', operator: 'equals' as const, value: 1 }] };
       const next = processorGraphBuilderReducer(state, {
         type: 'UPDATE_CONDITION_RULES',
@@ -406,7 +378,10 @@ describe('processorGraphBuilderReducer', () => {
             conditions: [
               {
                 steps: [],
-                rules: { operator: 'AND' as const, conditions: [{ field: 'x', operator: 'equals' as const, value: 1 }] },
+                rules: {
+                  operator: 'AND' as const,
+                  conditions: [{ field: 'x', operator: 'equals' as const, value: 1 }],
+                },
               },
             ],
           },

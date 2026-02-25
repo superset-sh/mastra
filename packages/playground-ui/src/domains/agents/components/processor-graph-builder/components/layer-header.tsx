@@ -1,14 +1,19 @@
-import { GripVertical, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, Columns2, GitBranch, GripVertical, Trash2 } from 'lucide-react';
 import type { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd';
-import { Badge } from '@/ds/components/Badge';
+import { Badge, type BadgeProps } from '@/ds/components/Badge';
 import { IconButton } from '@/ds/components/IconButton';
+import { Icon } from '@/ds/icons/Icon';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ds/components/Select';
 import { useProcessorGraphBuilderContext } from './processor-graph-builder-context';
 import type { BuilderLayer, BuilderLayerType } from '../types';
 
-const LAYER_TYPE_LABELS: Record<BuilderLayerType, string> = {
-  step: 'Step',
-  parallel: 'Parallel',
-  conditional: 'Conditional',
+const LAYER_TYPE_CONFIG: Record<
+  BuilderLayerType,
+  { label: string; variant: BadgeProps['variant']; icon: React.ReactNode }
+> = {
+  step: { label: 'Step', variant: 'info', icon: <ArrowDownToLine /> },
+  parallel: { label: 'Parallel', variant: 'success', icon: <Columns2 /> },
+  conditional: { label: 'Conditional', variant: 'warning', icon: <GitBranch /> },
 };
 
 interface LayerHeaderProps {
@@ -22,31 +27,37 @@ export function LayerHeader({ layer, dragHandleProps }: LayerHeaderProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-border1 bg-surface3">
       {!readOnly && (
-        <div {...dragHandleProps} className="cursor-grab text-neutral3 hover:text-neutral5">
-          <GripVertical className="h-4 w-4" />
+        <div
+          {...dragHandleProps}
+          className="cursor-grab rounded p-0.5 text-neutral3 hover:text-neutral5 hover:bg-surface5"
+        >
+          <Icon>
+            <GripVertical />
+          </Icon>
         </div>
       )}
 
-      <Badge>{LAYER_TYPE_LABELS[layer.entry.type]}</Badge>
+      <Badge variant={LAYER_TYPE_CONFIG[layer.entry.type].variant} icon={LAYER_TYPE_CONFIG[layer.entry.type].icon}>
+        {LAYER_TYPE_CONFIG[layer.entry.type].label}
+      </Badge>
 
       {!readOnly && (
         <div className="flex items-center gap-1 ml-auto">
-          <select
+          <Select
             value={layer.entry.type}
-            onChange={e => builder.setLayerType(layer.id, e.target.value as BuilderLayerType)}
-            className="text-ui-sm bg-surface4 border border-border1 rounded px-2 py-1 text-neutral5"
+            onValueChange={value => builder.setLayerType(layer.id, value as BuilderLayerType)}
           >
-            <option value="step">Step</option>
-            <option value="parallel">Parallel</option>
-            <option value="conditional">Conditional</option>
-          </select>
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="step">Step</SelectItem>
+              <SelectItem value="parallel">Parallel</SelectItem>
+              <SelectItem value="conditional">Conditional</SelectItem>
+            </SelectContent>
+          </Select>
 
-          <IconButton
-            variant="ghost"
-            size="sm"
-            tooltip="Remove layer"
-            onClick={() => builder.removeLayer(layer.id)}
-          >
+          <IconButton variant="ghost" size="sm" tooltip="Remove layer" onClick={() => builder.removeLayer(layer.id)}>
             <Trash2 className="h-3.5 w-3.5" />
           </IconButton>
         </div>

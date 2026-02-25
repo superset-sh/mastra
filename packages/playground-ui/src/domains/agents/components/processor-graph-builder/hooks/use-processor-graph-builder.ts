@@ -305,15 +305,9 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
   const initial = initialGraph ? fromStoredProcessorGraph(initialGraph) : INITIAL_STATE;
   const [state, dispatch] = useReducer(processorGraphBuilderReducer, initial);
 
-  const addLayer = useCallback(
-    (layerType: BuilderLayerType) => dispatch({ type: 'ADD_LAYER', layerType }),
-    [],
-  );
+  const addLayer = useCallback((layerType: BuilderLayerType) => dispatch({ type: 'ADD_LAYER', layerType }), []);
 
-  const removeLayer = useCallback(
-    (layerId: string) => dispatch({ type: 'REMOVE_LAYER', layerId }),
-    [],
-  );
+  const removeLayer = useCallback((layerId: string) => dispatch({ type: 'REMOVE_LAYER', layerId }), []);
 
   const reorderLayers = useCallback(
     (sourceIndex: number, destinationIndex: number) =>
@@ -342,10 +336,7 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
     [],
   );
 
-  const addBranch = useCallback(
-    (layerId: string) => dispatch({ type: 'ADD_BRANCH', layerId }),
-    [],
-  );
+  const addBranch = useCallback((layerId: string) => dispatch({ type: 'ADD_BRANCH', layerId }), []);
 
   const removeBranch = useCallback(
     (layerId: string, branchIndex: number) => dispatch({ type: 'REMOVE_BRANCH', layerId, branchIndex }),
@@ -388,10 +379,7 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
     [],
   );
 
-  const addCondition = useCallback(
-    (layerId: string) => dispatch({ type: 'ADD_CONDITION', layerId }),
-    [],
-  );
+  const addCondition = useCallback((layerId: string) => dispatch({ type: 'ADD_CONDITION', layerId }), []);
 
   const removeCondition = useCallback(
     (layerId: string, conditionIndex: number) => dispatch({ type: 'REMOVE_CONDITION', layerId, conditionIndex }),
@@ -404,10 +392,7 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
     [],
   );
 
-  const loadGraph = useCallback(
-    (graph: StoredProcessorGraph) => dispatch({ type: 'LOAD_GRAPH', graph }),
-    [],
-  );
+  const loadGraph = useCallback((graph: StoredProcessorGraph) => dispatch({ type: 'LOAD_GRAPH', graph }), []);
 
   const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
 

@@ -1,19 +1,15 @@
+import { GripVertical } from 'lucide-react';
 import { Badge } from '@/ds/components/Badge';
+import { Txt } from '@/ds/components/Txt';
+import { Icon } from '@/ds/icons/Icon';
 import { cn } from '@/lib/utils';
 import type { ProcessorProviderInfo } from '@mastra/client-js';
+import { PHASE_SHORT_LABELS } from '../utils/phase-labels';
 
 interface ProcessorProviderCardProps {
   provider: ProcessorProviderInfo;
   isDragging: boolean;
 }
-
-const PHASE_SHORT_LABELS: Record<string, string> = {
-  processInput: 'input',
-  processInputStep: 'inputStep',
-  processOutputStream: 'outStream',
-  processOutputResult: 'outResult',
-  processOutputStep: 'outStep',
-};
 
 export function ProcessorProviderCard({ provider, isDragging }: ProcessorProviderCardProps) {
   return (
@@ -23,9 +19,18 @@ export function ProcessorProviderCard({ provider, isDragging }: ProcessorProvide
         isDragging && 'shadow-md border-accent1/50',
       )}
     >
-      <p className="text-ui-sm font-medium text-neutral5">{provider.name}</p>
+      <div className="flex items-center gap-1">
+        <Txt variant="ui-sm" className="font-medium text-neutral5 flex-1 truncate">
+          {provider.name}
+        </Txt>
+        <Icon size="sm" className="text-neutral3 shrink-0">
+          <GripVertical />
+        </Icon>
+      </div>
       {provider.description && (
-        <p className="text-ui-xs text-neutral3 mt-0.5 line-clamp-2">{provider.description}</p>
+        <Txt variant="ui-xs" className="text-neutral3 mt-0.5 line-clamp-2">
+          {provider.description}
+        </Txt>
       )}
       {provider.availablePhases.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-1.5">

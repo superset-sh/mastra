@@ -21,7 +21,7 @@ export function StepLayerBody({ layer }: StepLayerBodyProps) {
           ) : (
             <EmptySlot isDraggingOver={snapshot.isDraggingOver} />
           )}
-          {provided.placeholder}
+          <div className="hidden">{provided.placeholder}</div>
         </div>
       )}
     </Droppable>

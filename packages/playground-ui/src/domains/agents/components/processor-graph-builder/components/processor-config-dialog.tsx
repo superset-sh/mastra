@@ -55,16 +55,11 @@ export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: Process
             <div className="flex flex-col gap-2">
               {availablePhases.map(phase => (
                 <label key={phase} className="flex items-center gap-2 text-ui-sm text-neutral5 cursor-pointer">
-                  <Checkbox
-                    checked={enabledPhases.includes(phase)}
-                    onCheckedChange={() => togglePhase(phase)}
-                  />
+                  <Checkbox checked={enabledPhases.includes(phase)} onCheckedChange={() => togglePhase(phase)} />
                   {phase}
                 </label>
               ))}
-              {availablePhases.length === 0 && (
-                <p className="text-ui-sm text-neutral3">Loading available phases...</p>
-              )}
+              {availablePhases.length === 0 && <p className="text-ui-sm text-neutral3">Loading available phases...</p>}
             </div>
           </div>
 
