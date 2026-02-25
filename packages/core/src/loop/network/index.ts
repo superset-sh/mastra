@@ -948,6 +948,11 @@ export async function createNetworkLoop({
       // When the sub-agent was aborted, skip saving partial results to memory
       // and return immediately with the abort event
       if (agentCallAborted) {
+        await onAbort?.({
+          primitiveType: 'agent',
+          primitiveId: inputData.primitiveId,
+          iteration: inputData.iteration,
+        });
         await writer?.write({
           type: 'agent-execution-abort',
           runId,
