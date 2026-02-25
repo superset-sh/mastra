@@ -54,6 +54,11 @@ function validateMountPath(mountPath: string): void {
   }
 }
 
+/** Canonicalize mount path so `/data`, `/data/`, `//data` all resolve to `/data`. */
+function normalizeMountPath(mountPath: string): string {
+  return `/${mountPath.split('/').filter(Boolean).join('/')}`;
+}
+
 // =============================================================================
 // Local Sandbox
 // =============================================================================
@@ -381,6 +386,7 @@ export class LocalSandbox extends MastraSandbox {
    */
   async mount(filesystem: WorkspaceFilesystem, mountPath: string): Promise<MountResult> {
     validateMountPath(mountPath);
+    mountPath = normalizeMountPath(mountPath);
 
     // Resolve virtual mount path to host filesystem path
     const hostPath = this.resolveHostPath(mountPath);
@@ -519,6 +525,7 @@ export class LocalSandbox extends MastraSandbox {
    */
   async unmount(mountPath: string): Promise<void> {
     validateMountPath(mountPath);
+    mountPath = normalizeMountPath(mountPath);
 
     const hostPath = this.resolveHostPath(mountPath);
 

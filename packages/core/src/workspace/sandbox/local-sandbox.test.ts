@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSandboxTestSuite } from '../../../../../workspaces/_test-utils/src/sandbox/factory';
 
 import { RequestContext } from '../../request-context';
+import type { WorkspaceFilesystem } from '../filesystem/filesystem';
 import { IsolationUnavailableError } from './errors';
 import { LocalSandbox, MARKER_DIR } from './local-sandbox';
 import { detectIsolation, isIsolationAvailable, isSeatbeltAvailable, isBwrapAvailable } from './native-sandbox';
@@ -818,7 +819,7 @@ describe('LocalSandbox', () => {
     let mountSandbox: LocalSandbox;
     let mountDir: string;
 
-    function makeMockLocalFs(basePath: string, overrides: Record<string, unknown> = {}) {
+    function makeMockLocalFs(basePath: string, overrides: Partial<WorkspaceFilesystem> = {}): WorkspaceFilesystem {
       return {
         id: 'test-local',
         provider: 'local',
@@ -832,7 +833,7 @@ describe('LocalSandbox', () => {
         getInstructions: vi.fn(),
         init: vi.fn(),
         ...overrides,
-      };
+      } as WorkspaceFilesystem;
     }
 
     beforeEach(async () => {
@@ -866,7 +867,7 @@ describe('LocalSandbox', () => {
       await fs.writeFile(path.join(sourceDir, 'test.txt'), 'hello from local');
 
       const mountPath = '/local-data';
-      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir), mountPath);
 
       expect(result.success).toBe(true);
       expect(result.mountPath).toBe(mountPath);
@@ -890,9 +891,9 @@ describe('LocalSandbox', () => {
       await fs.mkdir(sourceDir, { recursive: true });
       const mockFs = makeMockLocalFs(sourceDir);
 
-      await expect(mountSandbox.mount(mockFs as any, 'relative/path')).rejects.toThrow('Invalid mount path');
-      await expect(mountSandbox.mount(mockFs as any, '/tmp/bad path')).rejects.toThrow('Invalid mount path');
-      await expect(mountSandbox.mount(mockFs as any, '/')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs, 'relative/path')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs, '/tmp/bad path')).rejects.toThrow('Invalid mount path');
+      await expect(mountSandbox.mount(mockFs, '/')).rejects.toThrow('Invalid mount path');
     });
 
     it('should reject mount paths with path traversal segments', async () => {
@@ -900,11 +901,9 @@ describe('LocalSandbox', () => {
       await fs.mkdir(sourceDir, { recursive: true });
       const mockFs = makeMockLocalFs(sourceDir);
 
-      await expect(mountSandbox.mount(mockFs as any, '/data/../etc')).rejects.toThrow(
-        'Path segments cannot be "." or ".."',
-      );
-      await expect(mountSandbox.mount(mockFs as any, '/./data')).rejects.toThrow('Path segments cannot be "." or ".."');
-      await expect(mountSandbox.mount(mockFs as any, '/..')).rejects.toThrow('Path segments cannot be "." or ".."');
+      await expect(mountSandbox.mount(mockFs, '/data/../etc')).rejects.toThrow('Path segments cannot be "." or ".."');
+      await expect(mountSandbox.mount(mockFs, '/./data')).rejects.toThrow('Path segments cannot be "." or ".."');
+      await expect(mountSandbox.mount(mockFs, '/..')).rejects.toThrow('Path segments cannot be "." or ".."');
     });
 
     it('should return error for unsupported mount type', async () => {
@@ -948,7 +947,7 @@ describe('LocalSandbox', () => {
       const sourceDir = path.join(mountDir, 'src-nonempty');
       await fs.mkdir(sourceDir, { recursive: true });
 
-      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, '/nonempty');
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir), '/nonempty');
       expect(result.success).toBe(false);
       expect(result.error).toContain('not empty');
     });
@@ -971,7 +970,7 @@ describe('LocalSandbox', () => {
       await fs.writeFile(path.join(MARKER_DIR, markerFilename), `${hostPath}|${configHash}`);
 
       try {
-        const result = await mountSandbox.mount(makeMockLocalFs(basePath) as any, mountPath);
+        const result = await mountSandbox.mount(makeMockLocalFs(basePath), mountPath);
         expect(result.success).toBe(true);
         // Symlink should still point to the source
         const target = await fs.readlink(hostPath);
@@ -993,7 +992,7 @@ describe('LocalSandbox', () => {
       await fs.symlink(foreignTarget, hostPath);
 
       try {
-        const result = await mountSandbox.mount(makeMockLocalFs(ourBasePath) as any, mountPath);
+        const result = await mountSandbox.mount(makeMockLocalFs(ourBasePath), mountPath);
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('not created by Mastra');
@@ -1010,7 +1009,7 @@ describe('LocalSandbox', () => {
       const mountPath = '/persist-test';
       const hostPath = path.join(mountDir, 'persist-test');
 
-      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir), mountPath);
       expect(result.success).toBe(true);
 
       // Unmount — should remove the symlink, NOT the source directory
@@ -1031,7 +1030,7 @@ describe('LocalSandbox', () => {
       const hostPath = path.join(mountDir, 'marker-test');
       const config = { type: 'local' as const, basePath: sourceDir };
 
-      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir) as any, mountPath);
+      const result = await mountSandbox.mount(makeMockLocalFs(sourceDir), mountPath);
       expect(result.success).toBe(true);
 
       // Read and verify marker file
@@ -1071,7 +1070,7 @@ describe('LocalSandbox', () => {
       await fs.writeFile(path.join(MARKER_DIR, markerFilename), `${hostPath}|${oldHash}`);
 
       try {
-        const result = await mountSandbox.mount(makeMockLocalFs(newBasePath) as any, mountPath);
+        const result = await mountSandbox.mount(makeMockLocalFs(newBasePath), mountPath);
         expect(result.success).toBe(true);
 
         // Symlink should now point to the new source
@@ -1110,8 +1109,8 @@ describe('LocalSandbox', () => {
       await fs.mkdir(sourceA, { recursive: true });
       await fs.mkdir(sourceB, { recursive: true });
 
-      await mountSandbox.mount(makeMockLocalFs(sourceA, { id: 'a' }) as any, '/mount-a');
-      await mountSandbox.mount(makeMockLocalFs(sourceB, { id: 'b' }) as any, '/mount-b');
+      await mountSandbox.mount(makeMockLocalFs(sourceA, { id: 'a' }), '/mount-a');
+      await mountSandbox.mount(makeMockLocalFs(sourceB, { id: 'b' }), '/mount-b');
 
       expect(mountSandbox['_activeMountPaths'].size).toBe(2);
 
@@ -1127,7 +1126,7 @@ describe('LocalSandbox', () => {
       const source = path.join(mountDir, 'src-destroy');
       await fs.mkdir(source, { recursive: true });
 
-      await mountSandbox.mount(makeMockLocalFs(source) as any, '/destroy-mount');
+      await mountSandbox.mount(makeMockLocalFs(source), '/destroy-mount');
 
       expect(mountSandbox['_activeMountPaths'].size).toBe(1);
 
@@ -1148,16 +1147,13 @@ describe('LocalSandbox', () => {
       await fs.mkdir(source, { recursive: true });
 
       const mountPath = '/seatbelt-test';
-      await seatbeltSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+      await seatbeltSandbox.mount(makeMockLocalFs(source), mountPath);
 
       const info = await seatbeltSandbox.getInfo();
       const isoConfig = info.metadata?.isolationConfig as { readWritePaths?: string[] } | undefined;
       // Isolation allowlist uses the resolved host path
       expect(isoConfig?.readWritePaths).toEqual(expect.arrayContaining([path.join(mountDir, 'seatbelt-test')]));
 
-      // Clear before destroy
-      (seatbeltSandbox as any)._activeMountPaths.clear();
-      seatbeltSandbox.mounts.clear();
       await seatbeltSandbox._destroy();
     });
 
@@ -1169,7 +1165,7 @@ describe('LocalSandbox', () => {
       const source = path.join(mountDir, 'src-conflict');
       await fs.mkdir(source, { recursive: true });
 
-      const result = await mountSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+      const result = await mountSandbox.mount(makeMockLocalFs(source), mountPath);
 
       expect(result.success).toBe(false);
 
@@ -1187,7 +1183,7 @@ describe('LocalSandbox', () => {
       const source = path.join(mountDir, 'src-hidden');
       await fs.mkdir(source, { recursive: true });
 
-      const result = await mountSandbox.mount(makeMockLocalFs(source) as any, mountPath);
+      const result = await mountSandbox.mount(makeMockLocalFs(source), mountPath);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('not empty');
