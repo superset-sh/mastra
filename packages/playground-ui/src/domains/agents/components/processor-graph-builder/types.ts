@@ -62,5 +62,19 @@ export type ProcessorGraphBuilderAction =
   | { type: 'ADD_CONDITION'; layerId: string }
   | { type: 'REMOVE_CONDITION'; layerId: string; conditionIndex: number }
   | { type: 'UPDATE_CONDITION_RULES'; layerId: string; conditionIndex: number; rules: RuleGroup | undefined }
+  | {
+      type: 'UPDATE_CONDITION_STEP_CONFIG';
+      layerId: string;
+      conditionIndex: number;
+      stepIndex: number;
+      config: Record<string, unknown>;
+    }
+  | {
+      type: 'UPDATE_CONDITION_STEP_PHASES';
+      layerId: string;
+      conditionIndex: number;
+      stepIndex: number;
+      enabledPhases: ProcessorPhase[];
+    }
   | { type: 'LOAD_GRAPH'; graph: StoredProcessorGraph }
   | { type: 'RESET' };

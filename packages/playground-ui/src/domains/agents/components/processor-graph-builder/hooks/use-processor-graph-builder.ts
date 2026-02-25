@@ -286,6 +286,48 @@ export function processorGraphBuilderReducer(
       };
     }
 
+    case 'UPDATE_CONDITION_STEP_CONFIG': {
+      return {
+        ...state,
+        layers: state.layers.map(l => {
+          if (l.id !== action.layerId || l.entry.type !== 'conditional') return l;
+          const conditions = l.entry.conditions.map((cond, ci) => {
+            if (ci !== action.conditionIndex) return cond;
+            return {
+              ...cond,
+              steps: cond.steps.map((entry, si) => {
+                if (si !== action.stepIndex || entry.type !== 'step') return entry;
+                return { type: 'step' as const, step: { ...entry.step, config: action.config } };
+              }),
+            };
+          });
+          return { ...l, entry: { type: 'conditional' as const, conditions } };
+        }),
+        isDirty: true,
+      };
+    }
+
+    case 'UPDATE_CONDITION_STEP_PHASES': {
+      return {
+        ...state,
+        layers: state.layers.map(l => {
+          if (l.id !== action.layerId || l.entry.type !== 'conditional') return l;
+          const conditions = l.entry.conditions.map((cond, ci) => {
+            if (ci !== action.conditionIndex) return cond;
+            return {
+              ...cond,
+              steps: cond.steps.map((entry, si) => {
+                if (si !== action.stepIndex || entry.type !== 'step') return entry;
+                return { type: 'step' as const, step: { ...entry.step, enabledPhases: action.enabledPhases } };
+              }),
+            };
+          });
+          return { ...l, entry: { type: 'conditional' as const, conditions } };
+        }),
+        isDirty: true,
+      };
+    }
+
     case 'LOAD_GRAPH': {
       return fromStoredProcessorGraph(action.graph);
     }
@@ -386,6 +428,18 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
     [],
   );
 
+  const updateConditionStepConfig = useCallback(
+    (layerId: string, conditionIndex: number, stepIndex: number, config: Record<string, unknown>) =>
+      dispatch({ type: 'UPDATE_CONDITION_STEP_CONFIG', layerId, conditionIndex, stepIndex, config }),
+    [],
+  );
+
+  const updateConditionStepPhases = useCallback(
+    (layerId: string, conditionIndex: number, stepIndex: number, enabledPhases: ProcessorPhase[]) =>
+      dispatch({ type: 'UPDATE_CONDITION_STEP_PHASES', layerId, conditionIndex, stepIndex, enabledPhases }),
+    [],
+  );
+
   const updateConditionRules = useCallback(
     (layerId: string, conditionIndex: number, rules: RuleGroup | undefined) =>
       dispatch({ type: 'UPDATE_CONDITION_RULES', layerId, conditionIndex, rules }),
@@ -420,6 +474,8 @@ export function useProcessorGraphBuilder(initialGraph?: StoredProcessorGraph) {
     removeStepFromCondition,
     addCondition,
     removeCondition,
+    updateConditionStepConfig,
+    updateConditionStepPhases,
     updateConditionRules,
     loadGraph,
     reset,

@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SideDialog } from '@/ds/components/SideDialog';
 import { Button } from '@/ds/components/Button';
 import { Checkbox } from '@/ds/components/Checkbox';
+import { DynamicForm } from '@/lib/form';
+import { resolveSerializedZodOutput } from '@/lib/form/utils';
+import { jsonSchemaToZod } from '@mastra/schema-compat/json-to-zod';
 import type { ProcessorGraphStep, ProcessorPhase } from '../types';
 import { useProcessorProviderDetails } from '@/domains/processors/hooks';
 
@@ -17,7 +20,27 @@ export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: Process
   const [config, setConfig] = useState<Record<string, unknown>>(step.config);
   const [enabledPhases, setEnabledPhases] = useState<ProcessorPhase[]>(step.enabledPhases);
 
+  useEffect(() => {
+    if (isOpen) {
+      setConfig(step.config);
+      setEnabledPhases(step.enabledPhases);
+    }
+  }, [isOpen, step.config, step.enabledPhases]);
+
   const availablePhases = (providerDetails?.availablePhases ?? []) as ProcessorPhase[];
+
+  const zodSchema = useMemo(() => {
+    if (!providerDetails?.configSchema || Object.keys(providerDetails.configSchema).length === 0) {
+      return null;
+    }
+    try {
+      const jsonSchema = providerDetails.configSchema as Parameters<typeof jsonSchemaToZod>[0];
+      return resolveSerializedZodOutput(jsonSchemaToZod(jsonSchema));
+    } catch (error) {
+      console.error('Failed to parse processor configSchema:', error);
+      return null;
+    }
+  }, [providerDetails?.configSchema]);
 
   const togglePhase = (phase: ProcessorPhase) => {
     setEnabledPhases(prev => (prev.includes(phase) ? prev.filter(p => p !== phase) : [...prev, phase]));
@@ -63,12 +86,10 @@ export function ProcessorConfigDialog({ step, isOpen, onClose, onSave }: Process
             </div>
           </div>
 
-          {providerDetails?.configSchema && Object.keys(providerDetails.configSchema).length > 0 && (
+          {zodSchema && (
             <div>
               <h4 className="text-ui-sm font-medium text-neutral5 mb-3">Configuration</h4>
-              <p className="text-ui-xs text-neutral3">
-                Configuration form will be rendered from the provider's config schema.
-              </p>
+              <DynamicForm schema={zodSchema} onValuesChange={setConfig} defaultValues={config} />
             </div>
           )}
         </div>
