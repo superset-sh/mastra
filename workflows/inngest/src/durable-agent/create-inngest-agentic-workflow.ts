@@ -1,11 +1,10 @@
 import {
   createDurableLLMExecutionStep,
   createDurableLLMMappingStep,
+  createDurableToolCallStep,
   DurableAgentDefaults,
   DurableStepIds,
   emitFinishEvent,
-  emitChunkEvent,
-  executeDurableToolCalls,
   modelConfigSchema,
   durableAgenticOutputSchema,
   baseIterationStateSchema,
@@ -17,13 +16,10 @@ import type {
   DurableLLMStepOutput,
   DurableToolCallOutput,
   DurableToolCallInput,
-  ToolExecutionError,
 } from '@mastra/core/agent/durable';
 import type { PubSub } from '@mastra/core/events';
-import type { Mastra } from '@mastra/core/mastra';
 import { SpanType, EntityType, InternalSpans } from '@mastra/core/observability';
 import type { ExportedSpan } from '@mastra/core/observability';
-import { ChunkFrom } from '@mastra/core/stream';
 import { PUBSUB_SYMBOL } from '@mastra/core/workflows/_constants';
 import type { Inngest } from 'inngest';
 import { z } from 'zod';
@@ -86,7 +82,7 @@ type IterationState = z.infer<typeof iterationStateSchema> & {
  * Inngest's execution engine:
  *
  * 1. LLM Execution Step - Calls the LLM and gets response/tool calls
- * 2. Tool Call Execution - Executes each tool call
+ * 2. Tool Call Steps (foreach) - Executes each tool call individually with suspend support
  * 3. LLM Mapping Step - Merges tool results back into state
  * 4. Loop - Continues if more tool calls are needed (dowhile)
  *
@@ -111,6 +107,9 @@ export function createInngestDurableAgenticWorkflow(options: InngestDurableAgent
 
   // Create the LLM execution step - tools and model are resolved from Mastra at runtime
   const llmExecutionStep = createDurableLLMExecutionStep();
+
+  // Create the tool call step - each tool call runs as its own step with suspend support
+  const toolCallStep = createDurableToolCallStep();
 
   // Create the LLM mapping step - reuse from core
   const llmMappingStep = createDurableLLMMappingStep();
@@ -157,155 +156,77 @@ export function createInngestDurableAgenticWorkflow(options: InngestDurableAgent
     )
     // Step 1: Execute LLM
     .then(llmExecutionStep)
-    // Step 2: Execute tool calls (if any)
+    // Step 2: Extract tool calls as array for foreach
     .map(
-      async params => {
-        const { inputData, getInitData, mastra, requestContext } = params;
+      async ({ inputData }) => {
         const llmOutput = inputData as DurableLLMStepOutput;
+        return (llmOutput.toolCalls ?? []) as DurableToolCallInput[];
+      },
+      { id: 'extract-tool-calls' },
+    )
+    // Step 3: Execute each tool call individually (with suspend support)
+    // Tool result/error PubSub emission is handled by createDurableToolCallStep
+    .foreach(toolCallStep)
+    // Step 4: Collect tool results, create observability spans, and bundle for mapping
+    .map(
+      async ({ inputData, getStepResult, getInitData, mastra }) => {
+        const toolResults = inputData as DurableToolCallOutput[];
+        const llmOutput = getStepResult(llmExecutionStep.id) as DurableLLMStepOutput;
         const initData = getInitData() as IterationState;
 
-        // Access pubsub via symbol for emitting tool-result chunks
-        const pubsub = (params as any)[PUBSUB_SYMBOL] as PubSub | undefined;
-
-        // If no tool calls, skip to mapping
-        if (!llmOutput.toolCalls || llmOutput.toolCalls.length === 0) {
-          return {
-            llmOutput,
-            toolResults: [] as DurableToolCallOutput[],
-            runId: initData.runId,
-            agentId: initData.agentId,
-            messageId: initData.messageId,
-            state: llmOutput.state,
-          };
-        }
-
-        // Get tools from the agent via Mastra
-        let tools: Record<string, any> = {};
-        if (mastra) {
-          try {
-            const agent = (mastra as Mastra).getAgentById(initData.agentId);
-            tools = await agent.getToolsForExecution({
-              runId: initData.runId,
-              threadId: initData.state?.threadId,
-              resourceId: initData.state?.resourceId,
-              memoryConfig: initData.state?.memoryConfig,
-              autoResumeSuspendedTools: initData.options?.autoResumeSuspendedTools,
-            });
-          } catch (error) {
-            mastra?.getLogger?.()?.debug?.(`Failed to get tools from agent: ${error}`);
-          }
-        }
-
-        // Get observability for tool call spans
+        // Create observability spans retroactively for each tool result
+        // In the foreach pattern, individual tool calls don't have access to
+        // the observability context, so we create spans here in the collection step
         const observability = mastra?.observability?.getSelectedInstance({});
 
-        // Rebuild spans from exported data:
-        // - stepSpan: parent for tool and tool-result (matches regular agent structure)
-        // - modelSpan: parent of stepSpan, close after stepSpan
-        // - agentSpan: fallback if others not available
-        const modelSpanData = (llmOutput as any).modelSpanData as ExportedSpan<SpanType.MODEL_GENERATION> | undefined;
-        const stepSpanData = (llmOutput as any).stepSpanData as ExportedSpan<SpanType.MODEL_STEP> | undefined;
+        const modelSpanData = (llmOutput as any)?.modelSpanData as ExportedSpan<SpanType.MODEL_GENERATION> | undefined;
+        const stepSpanData = (llmOutput as any)?.stepSpanData as ExportedSpan<SpanType.MODEL_STEP> | undefined;
 
         const modelSpan = modelSpanData ? observability?.rebuildSpan(modelSpanData) : undefined;
         const stepSpan = stepSpanData ? observability?.rebuildSpan(stepSpanData) : undefined;
         const agentSpan = initData.agentSpanData ? observability?.rebuildSpan(initData.agentSpanData) : undefined;
-
-        // Tool spans should be children of model_step (like regular agent)
         const toolParentSpan = stepSpan ?? modelSpan ?? agentSpan;
 
-        // Map to track tool spans by toolCallId (for hook closures)
-        const toolSpans = new Map<string, any>();
+        // Create tool call + tool result spans for each tool result
+        for (const tr of toolResults) {
+          const toolSpan = toolParentSpan?.createChildSpan({
+            type: SpanType.TOOL_CALL,
+            name: `tool: '${tr.toolName}'`,
+            entityType: EntityType.TOOL,
+            entityId: tr.toolName,
+            entityName: tr.toolName,
+            input: tr.args,
+          });
 
-        // Execute tool calls using shared function with observability hooks
-        const toolResults = await executeDurableToolCalls({
-          toolCalls: llmOutput.toolCalls,
-          tools,
-          runId: initData.runId,
-          agentId: initData.agentId,
-          messageId: initData.messageId,
-          state: llmOutput.state,
-          requestContext,
+          if (tr.error) {
+            toolSpan?.error({ error: new Error(tr.error.message) });
+          } else {
+            toolSpan?.end({ output: tr.result });
+          }
 
-          // Create tool span before execution
-          onToolStart: (toolCall: DurableToolCallInput) => {
-            const toolSpan = toolParentSpan?.createChildSpan({
-              type: SpanType.TOOL_CALL,
-              name: `tool: '${toolCall.toolName}'`,
-              entityType: EntityType.TOOL,
-              entityId: toolCall.toolName,
-              entityName: toolCall.toolName,
-              input: toolCall.args,
-            });
-            if (toolSpan) {
-              toolSpans.set(toolCall.toolCallId, toolSpan);
-            }
-          },
-
-          // End span and emit chunk on success
-          onToolResult: async (toolCall: DurableToolCallInput, result: unknown) => {
-            const toolSpan = toolSpans.get(toolCall.toolCallId);
-            toolSpan?.end({ output: result });
-
-            // Create tool-result chunk span as child of model_step
+          // Create tool-result chunk span as child of model_step
+          if (!tr.error) {
             stepSpan?.createEventSpan({
               type: SpanType.MODEL_CHUNK,
               name: `chunk: 'tool-result'`,
               output: {
-                toolCallId: toolCall.toolCallId,
-                toolName: toolCall.toolName,
-                result,
+                toolCallId: tr.toolCallId,
+                toolName: tr.toolName,
+                result: tr.result,
               },
             });
-
-            // Emit tool-result chunk so client stream receives it
-            if (pubsub) {
-              await emitChunkEvent(pubsub, initData.runId, {
-                type: 'tool-result',
-                runId: initData.runId,
-                from: ChunkFrom.AGENT,
-                payload: {
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  args: toolCall.args,
-                  result,
-                },
-              });
-            }
-          },
-
-          // Error span and emit chunk on failure
-          onToolError: async (toolCall: DurableToolCallInput, error: ToolExecutionError) => {
-            const toolSpan = toolSpans.get(toolCall.toolCallId);
-            toolSpan?.error({
-              error: new Error(error.message),
-            });
-
-            // Emit tool-error chunk so client stream receives it
-            if (pubsub) {
-              await emitChunkEvent(pubsub, initData.runId, {
-                type: 'tool-error',
-                runId: initData.runId,
-                from: ChunkFrom.AGENT,
-                payload: {
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  args: toolCall.args,
-                  error,
-                },
-              });
-            }
-          },
-        });
+          }
+        }
 
         // End step span (children before parent)
-        // Use the pending step finish payload from LLM execution for proper attributes
         // NOTE: We do NOT close the model span here - it stays open for the entire agent run
         // and is closed in map-final-output after the agentic loop completes
+        const toolCalls = (llmOutput?.toolCalls ?? []) as DurableToolCallInput[];
         if (stepSpan) {
           const stepFinishPayload = (llmOutput as any).stepFinishPayload as any;
           stepSpan.end({
             output: {
-              toolCalls: llmOutput.toolCalls.map(tc => ({
+              toolCalls: toolCalls.map(tc => ({
                 toolCallId: tc.toolCallId,
                 toolName: tc.toolName,
                 args: tc.args,
@@ -331,14 +252,14 @@ export function createInngestDurableAgenticWorkflow(options: InngestDurableAgent
           runId: initData.runId,
           agentId: initData.agentId,
           messageId: initData.messageId,
-          state: llmOutput.state,
+          state: llmOutput?.state ?? initData.state,
         };
       },
-      { id: 'execute-tool-calls' },
+      { id: 'collect-tool-results' },
     )
-    // Step 3: Map tool results back to state
+    // Step 5: Map tool results back to state
     .then(llmMappingStep)
-    // Step 4: Map back to iteration state format using shared function
+    // Step 6: Map back to iteration state format using shared function
     .map(
       async ({ inputData, getInitData }) => {
         const executionOutput = inputData as DurableAgenticExecutionOutput;

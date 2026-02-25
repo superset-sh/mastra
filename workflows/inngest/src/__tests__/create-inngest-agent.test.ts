@@ -13,6 +13,7 @@ import { DefaultStorage } from '@mastra/libsql';
 import { Inngest } from 'inngest';
 import { describe, it, expect, vi } from 'vitest';
 
+import { InngestDurableStepIds } from '../durable-agent/create-inngest-agentic-workflow';
 import { createInngestAgent, isInngestAgent } from '../index';
 
 // Mock model for testing
@@ -101,7 +102,7 @@ describe('createInngestAgent factory function', () => {
 
     expect(Array.isArray(workflows)).toBe(true);
     expect(workflows.length).toBe(1);
-    expect(workflows[0].id).toBe('durable-agentic-loop');
+    expect(workflows[0].id).toBe(InngestDurableStepIds.AGENTIC_LOOP);
   });
 
   it('should prepare for durable execution', async () => {
@@ -169,7 +170,7 @@ describe('createInngestAgent with Mastra auto-registration', () => {
     expect(registeredAgent?.id).toBe('auto-reg-agent');
 
     // Verify workflow is auto-registered
-    const workflow = mastra.getWorkflow('durable-agentic-loop');
+    const workflow = mastra.getWorkflow(InngestDurableStepIds.AGENTIC_LOOP);
     expect(workflow).toBeDefined();
   });
 
@@ -199,7 +200,7 @@ describe('createInngestAgent with Mastra auto-registration', () => {
     expect(registeredAgent).toBeDefined();
 
     // Verify workflow is auto-registered
-    const workflow = mastra.getWorkflow('durable-agentic-loop');
+    const workflow = mastra.getWorkflow(InngestDurableStepIds.AGENTIC_LOOP);
     expect(workflow).toBeDefined();
   });
 
@@ -238,7 +239,7 @@ describe('createInngestAgent with Mastra auto-registration', () => {
     expect(mastra.getAgentById('multi-agent-2')).toBeDefined();
 
     // Verify workflow is registered (only once)
-    const workflow = mastra.getWorkflow('durable-agentic-loop');
+    const workflow = mastra.getWorkflow(InngestDurableStepIds.AGENTIC_LOOP);
     expect(workflow).toBeDefined();
   });
 });

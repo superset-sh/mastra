@@ -9,6 +9,7 @@ import type { JSONSchema7 } from 'json-schema';
 import type { z } from 'zod';
 
 import type { MastraLanguageModel } from '../../llm/model/shared.types';
+import type { MastraMemory } from '../../memory/memory';
 import type { MemoryConfig } from '../../memory/types';
 import type { RequestContext } from '../../request-context';
 import type { ChunkType } from '../../stream/types';
@@ -366,6 +367,8 @@ export interface RunRegistryEntry {
   tools: Record<string, CoreTool>;
   /** SaveQueueManager for message persistence (undefined when memory is not configured) */
   saveQueueManager?: SaveQueueManager;
+  /** Memory instance for thread creation and message persistence */
+  memory?: MastraMemory;
   /** The language model instance (non-serializable, has doStream method) */
   model: MastraLanguageModel;
   /** Model list for fallback support (stores actual model instances) */

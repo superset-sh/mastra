@@ -4,13 +4,11 @@ import { runScorer } from '../../../evals/hooks';
 import type { PubSub } from '../../../events/pubsub';
 import type { Mastra } from '../../../mastra';
 import { RequestContext } from '../../../request-context';
-import { ChunkFrom } from '../../../stream/types';
 import { createWorkflow } from '../../../workflows';
 import { PUBSUB_SYMBOL } from '../../../workflows/constants';
 import { MessageList } from '../../message-list';
 import { DurableStepIds, DurableAgentDefaults } from '../constants';
-import { globalRunRegistry } from '../run-registry';
-import { emitFinishEvent, emitChunkEvent } from '../stream-adapter';
+import { emitFinishEvent } from '../stream-adapter';
 import type {
   DurableToolCallInput,
   DurableAgenticWorkflowInput,
@@ -19,16 +17,14 @@ import type {
   DurableToolCallOutput,
   SerializableScorersConfig,
 } from '../types';
-import type { ToolExecutionError } from './shared';
 import {
-  executeDurableToolCalls,
   modelConfigSchema,
   modelListEntrySchema,
   durableAgenticOutputSchema,
   baseIterationStateSchema,
   createBaseIterationStateUpdate,
 } from './shared';
-import { createDurableLLMExecutionStep, createDurableLLMMappingStep } from './steps';
+import { createDurableLLMExecutionStep, createDurableToolCallStep, createDurableLLMMappingStep } from './steps';
 
 /**
  * Options for creating a durable agentic workflow
@@ -90,10 +86,16 @@ export function createDurableAgenticWorkflow(options?: DurableAgenticWorkflowOpt
   // Create the LLM execution step - tools and model are resolved from Mastra at runtime
   const llmExecutionStep = createDurableLLMExecutionStep();
 
+  // Create the tool call step - each tool call runs as its own step with suspend support
+  const toolCallStep = createDurableToolCallStep();
+
   // Create the LLM mapping step
   const llmMappingStep = createDurableLLMMappingStep();
 
   // Create the single iteration workflow (LLM -> Tool Calls -> Mapping)
+  // Note: foreach runs with concurrency: 1 (sequential) because tool approval
+  // and suspension require sequential execution to properly handle suspend/resume.
+  // The workflow is created once at startup and reused for all runs.
   const singleIterationWorkflow = createWorkflow({
     id: DurableStepIds.AGENTIC_EXECUTION,
     inputSchema: iterationStateSchema,
@@ -124,97 +126,22 @@ export function createDurableAgenticWorkflow(options?: DurableAgenticWorkflowOpt
     )
     // Step 1: Execute LLM
     .then(llmExecutionStep)
-    // Step 2: Execute tool calls (if any)
+    // Step 2: Extract tool calls as array for foreach
     .map(
-      async params => {
-        const { inputData, getInitData, mastra, requestContext } = params;
+      async ({ inputData }) => {
         const llmOutput = inputData as DurableLLMStepOutput;
+        return (llmOutput.toolCalls ?? []) as DurableToolCallInput[];
+      },
+      { id: 'extract-tool-calls' },
+    )
+    // Step 3: Execute each tool call individually (with suspend support)
+    .foreach(toolCallStep)
+    // Step 4: Collect tool results and bundle with LLM output for mapping step
+    .map(
+      async ({ inputData, getStepResult, getInitData }) => {
+        const toolResults = inputData as DurableToolCallOutput[];
+        const llmOutput = getStepResult(llmExecutionStep.id) as DurableLLMStepOutput;
         const initData = getInitData() as IterationState;
-
-        // If no tool calls, skip to mapping
-        if (!llmOutput.toolCalls || llmOutput.toolCalls.length === 0) {
-          return {
-            llmOutput,
-            toolResults: [] as DurableToolCallOutput[],
-            runId: initData.runId,
-            agentId: initData.agentId,
-            messageId: initData.messageId,
-            state: llmOutput.state,
-          };
-        }
-
-        // Get tools from global registry first (for local/test execution)
-        // This allows tools to work without Mastra registration
-        const registryEntry = globalRunRegistry.get(initData.runId);
-        let tools: Record<string, any> = registryEntry?.tools ?? {};
-
-        // If no tools in registry, try to get from agent via Mastra
-        if (Object.keys(tools).length === 0 && mastra) {
-          try {
-            const agent = (mastra as Mastra).getAgentById(initData.agentId);
-            tools = await agent.getToolsForExecution({
-              runId: initData.runId,
-              threadId: initData.state?.threadId,
-              resourceId: initData.state?.resourceId,
-              memoryConfig: initData.state?.memoryConfig,
-              autoResumeSuspendedTools: initData.options?.autoResumeSuspendedTools,
-            });
-          } catch (error) {
-            mastra?.getLogger?.()?.debug?.(`Failed to get tools from agent: ${error}`);
-          }
-        }
-
-        // Access pubsub via symbol for emitting tool-result chunks
-        const pubsub = (params as any)[PUBSUB_SYMBOL] as PubSub | undefined;
-
-        // Get workspace from registry (already fetched above)
-        const workspace = registryEntry?.workspace;
-
-        // Execute tool calls using shared function with pubsub hooks
-        const toolResults = await executeDurableToolCalls({
-          toolCalls: llmOutput.toolCalls,
-          tools,
-          runId: initData.runId,
-          agentId: initData.agentId,
-          messageId: initData.messageId,
-          state: llmOutput.state,
-          workspace,
-          requestContext,
-
-          // Emit tool-result chunk on success so client stream receives it
-          onToolResult: async (toolCall: DurableToolCallInput, result: unknown) => {
-            if (pubsub) {
-              await emitChunkEvent(pubsub, initData.runId, {
-                type: 'tool-result',
-                runId: initData.runId,
-                from: ChunkFrom.AGENT,
-                payload: {
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  args: toolCall.args,
-                  result,
-                },
-              });
-            }
-          },
-
-          // Emit tool-error chunk on failure so client stream receives it
-          onToolError: async (toolCall: DurableToolCallInput, error: ToolExecutionError) => {
-            if (pubsub) {
-              await emitChunkEvent(pubsub, initData.runId, {
-                type: 'tool-error',
-                runId: initData.runId,
-                from: ChunkFrom.AGENT,
-                payload: {
-                  toolCallId: toolCall.toolCallId,
-                  toolName: toolCall.toolName,
-                  args: toolCall.args,
-                  error,
-                },
-              });
-            }
-          },
-        });
 
         return {
           llmOutput,
@@ -222,14 +149,14 @@ export function createDurableAgenticWorkflow(options?: DurableAgenticWorkflowOpt
           runId: initData.runId,
           agentId: initData.agentId,
           messageId: initData.messageId,
-          state: llmOutput.state,
+          state: llmOutput?.state ?? initData.state,
         };
       },
-      { id: 'execute-tool-calls' },
+      { id: 'collect-tool-results' },
     )
-    // Step 3: Map tool results back to state
+    // Step 5: Map tool results back to state
     .then(llmMappingStep)
-    // Step 4: Map back to iteration state format using shared function
+    // Step 6: Map back to iteration state format using shared function
     .map(
       async ({ inputData, getInitData }) => {
         const executionOutput = inputData as DurableAgenticExecutionOutput;

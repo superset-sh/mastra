@@ -250,6 +250,7 @@ export async function prepareForDurableExecution<OUTPUT = undefined>(
   const registryEntry: RunRegistryEntry = {
     tools,
     saveQueueManager,
+    memory,
     model,
     // Store model list instances for fallback support (enables testing with mock models)
     modelList: modelList
