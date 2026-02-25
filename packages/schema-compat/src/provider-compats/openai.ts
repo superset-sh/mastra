@@ -176,6 +176,10 @@ export class OpenAISchemaCompatLayer extends SchemaCompatLayer {
   }
 
   postProcessJSONNode(schema: JSONSchema7): void {
+    if (schema.type === undefined) {
+      schema.type = ['string', 'number', 'integer', 'boolean', 'object', 'array', 'null'];
+    }
+
     // Handle union schemas in post-processing (after children are processed)
     if (isUnionSchema(schema)) {
       this.defaultUnionHandler(schema);

@@ -272,14 +272,18 @@ async function executeAgent(
 ) {
   const model = await agent.getModel();
   if (isSupportedLanguageModel(model)) {
-    return await agent.generate(item.input as any, {
-      ...targetOptions,
+    const { structuredOutput, ...restOptions } = targetOptions ?? {};
+    const baseOptions = {
+      ...restOptions,
       scorers: {},
       returnScorerData: true,
       requestContext: item.requestContext,
-    });
+    };
+    return structuredOutput
+      ? await agent.generate(item.input, { ...baseOptions, structuredOutput })
+      : await agent.generate(item.input, baseOptions);
   } else {
-    return await agent.generateLegacy(item.input as any, {
+    return await agent.generateLegacy(item.input, {
       scorers: {},
       returnScorerData: true,
       requestContext: item.requestContext,
