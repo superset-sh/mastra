@@ -2,8 +2,11 @@ import type { z } from 'zod';
 
 import type { Agent } from '../agent';
 import type { ToolsInput, ToolsetsInput } from '../agent/types';
+import type { IMastraLogger } from '../logger';
+import type { MastraMemory } from '../memory/memory';
 import type { StorageThreadType } from '../memory/types';
 import { RequestContext } from '../request-context';
+import type { MastraCompositeStore } from '../storage/base';
 import type { MemoryStorage } from '../storage/domains/memory/base';
 import type { ObservationalMemoryRecord } from '../storage/types';
 import { Workspace } from '../workspace/workspace';
@@ -92,6 +95,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
   private sessionGrantedCategories = new Set<string>();
   private sessionGrantedTools = new Set<string>();
   private displayState: HarnessDisplayState = defaultDisplayState();
+
+  // DI fields — set by Mastra when the harness is registered via addHarness()
+  private mastra: any | undefined = undefined;
+  private logger: IMastraLogger | undefined = undefined;
 
   constructor(config: HarnessConfig<TState>) {
     this.id = config.id;
@@ -2532,5 +2539,48 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       return this.config.idGenerator();
     }
     return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+
+  // ===========================================================================
+  // Dependency Injection (called by Mastra when registering via addHarness)
+  // ===========================================================================
+
+  /**
+   * @internal Called by Mastra to register itself with this harness.
+   * Provides a back-reference so the harness can resolve shared resources.
+   */
+  __registerMastra(mastra: any): void {
+    this.mastra = mastra;
+  }
+
+  /**
+   * @internal Called by Mastra to inject the shared logger.
+   */
+  __setLogger(logger: IMastraLogger): void {
+    this.logger = logger;
+  }
+
+  /**
+   * @internal Called by Mastra to inject shared primitives as fallbacks.
+   * Config-level values take precedence; these are only used when config doesn't provide them.
+   */
+  __registerPrimitives(primitives: {
+    logger?: IMastraLogger;
+    storage?: MastraCompositeStore;
+    memory?: MastraMemory;
+    workspace?: Workspace;
+  }): void {
+    if (primitives.logger && !this.logger) {
+      this.logger = primitives.logger;
+    }
+    if (primitives.storage && !this.config.storage) {
+      this.config.storage = primitives.storage;
+    }
+    if (primitives.memory && !this.config.memory) {
+      this.config.memory = primitives.memory;
+    }
+    if (primitives.workspace && !this.workspace && !this.workspaceFn) {
+      this.workspace = primitives.workspace;
+    }
   }
 }

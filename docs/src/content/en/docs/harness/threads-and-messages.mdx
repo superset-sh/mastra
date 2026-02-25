@@ -1,0 +1,80 @@
+---
+title: "Threads and messages | Harness"
+description: "Learn how to manage conversation threads and send messages through a harness."
+packages:
+  - "@mastra/core"
+---
+
+# Threads and messages
+
+The harness manages persistent conversation threads backed by your configured storage and memory. Each thread maintains its own message history and mode/model preferences.
+
+## Send a message
+
+Call `sendMessage()` to send user content to the current mode's agent. The harness handles the full tool loop, emitting events as the agent generates its response:
+
+```typescript
+await harness.sendMessage({ content: 'Explain how the auth module works.' })
+```
+
+To include images:
+
+```typescript
+await harness.sendMessage({
+  content: 'What does this screenshot show?',
+  images: ['https://example.com/screenshot.png'],
+})
+```
+
+## Create and switch threads
+
+```typescript
+// Create a new thread
+const thread = await harness.createThread({ title: 'Refactor auth module' })
+
+// Switch to an existing thread
+await harness.switchThread({ threadId: thread.id })
+
+// Rename the current thread
+await harness.renameThread({ title: 'Auth module cleanup' })
+```
+
+## List threads and messages
+
+```typescript
+// List all threads for the current resource
+const threads = await harness.listThreads()
+
+// List messages in the current thread
+const messages = await harness.listMessages({ limit: 50 })
+
+// List messages for a specific thread
+const threadMessages = await harness.listMessagesForThread(threadId)
+```
+
+## Steer and follow up
+
+Use `steer()` to inject a system-level instruction mid-conversation without a user message:
+
+```typescript
+await harness.steer('Focus on the database layer.')
+```
+
+Use `followUp()` to automatically continue the conversation if the agent's response indicates more work is needed:
+
+```typescript
+await harness.followUp()
+```
+
+## Abort
+
+Cancel an in-progress generation:
+
+```typescript
+harness.abort()
+```
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [Events and display state](/docs/harness/events-and-display-state)

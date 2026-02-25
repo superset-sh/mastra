@@ -1,0 +1,129 @@
+---
+title: "HTTP API | Harness"
+description: "Learn how to expose harnesses as HTTP endpoints through the Mastra server."
+packages:
+  - "@mastra/core"
+  - "@mastra/server"
+---
+
+# HTTP API
+
+When you register harnesses with your Mastra instance and run the Mastra server, harness endpoints are automatically available. All four server adapters (Hono, Express, Fastify, Koa) serve these routes.
+
+## Endpoints
+
+### List and inspect
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/harnesses` | List all registered harnesses |
+| `GET` | `/harnesses/:harnessId` | Get harness metadata and session info |
+
+### Messages
+
+| Method | Path | Description |
+| - | - | - |
+| `POST` | `/harnesses/:harnessId/send` | Send a message and wait for completion |
+| `POST` | `/harnesses/:harnessId/stream` | Send a message and stream events via SSE |
+| `POST` | `/harnesses/:harnessId/abort` | Abort the current generation |
+
+### Event stream
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/harnesses/:harnessId/events` | Subscribe to all harness events via SSE |
+
+### Threads
+
+| Method | Path | Description |
+| - | - | - |
+| `POST` | `/harnesses/:harnessId/threads` | Create a new thread |
+| `GET` | `/harnesses/:harnessId/threads` | List threads |
+| `POST` | `/harnesses/:harnessId/threads/switch` | Switch to a thread |
+| `POST` | `/harnesses/:harnessId/threads/rename` | Rename the current thread |
+
+### Interactive responses
+
+| Method | Path | Description |
+| - | - | - |
+| `POST` | `/harnesses/:harnessId/respond/tool-approval` | Respond to a tool approval request |
+| `POST` | `/harnesses/:harnessId/respond/question` | Answer a pending question |
+| `POST` | `/harnesses/:harnessId/respond/plan-approval` | Respond to a plan approval request |
+
+### Modes and models
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/harnesses/:harnessId/modes` | List available modes |
+| `POST` | `/harnesses/:harnessId/modes/switch` | Switch mode |
+| `POST` | `/harnesses/:harnessId/model/switch` | Switch model |
+
+### State
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/harnesses/:harnessId/state` | Get current harness state |
+| `PATCH` | `/harnesses/:harnessId/state` | Update harness state |
+| `GET` | `/harnesses/:harnessId/display-state` | Get current display state snapshot |
+
+### Messages and permissions
+
+| Method | Path | Description |
+| - | - | - |
+| `GET` | `/harnesses/:harnessId/messages` | List messages for the current thread |
+| `GET` | `/harnesses/:harnessId/permissions` | Get permission rules and session grants |
+| `POST` | `/harnesses/:harnessId/permissions/category` | Set a category permission policy |
+| `POST` | `/harnesses/:harnessId/permissions/tool` | Set a tool permission policy |
+| `POST` | `/harnesses/:harnessId/permissions/grant-category` | Grant a category for the session |
+| `POST` | `/harnesses/:harnessId/permissions/grant-tool` | Grant a tool for the session |
+| `GET` | `/harnesses/:harnessId/token-usage` | Get token usage statistics |
+
+## Stream a message
+
+The `/stream` endpoint returns Server-Sent Events (SSE). Each event is a JSON object with a `type` field matching the harness event types:
+
+```typescript
+const response = await fetch('http://localhost:4111/harnesses/my-harness/stream', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ content: 'Explain the auth module.' }),
+})
+
+const reader = response.body.getReader()
+const decoder = new TextDecoder()
+
+while (true) {
+  const { done, value } = await reader.read()
+  if (done) break
+
+  const text = decoder.decode(value)
+  // Parse SSE events
+  for (const line of text.split('\n')) {
+    if (line.startsWith('data: ')) {
+      const event = JSON.parse(line.slice(6))
+      console.log(event.type, event)
+    }
+  }
+}
+```
+
+## Subscribe to events
+
+The `/events` endpoint provides a persistent SSE connection for all harness events. This is useful when the message is sent through a different channel (e.g. a separate POST request):
+
+```typescript
+const eventSource = new EventSource('http://localhost:4111/harnesses/my-harness/events')
+
+eventSource.onmessage = e => {
+  const event = JSON.parse(e.data)
+  if (event.type === 'display_state_changed') {
+    updateUI(event.displayState)
+  }
+}
+```
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [Server overview](/docs/server/mastra-server)
+- [Events and display state](/docs/harness/events-and-display-state)

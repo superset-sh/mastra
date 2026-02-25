@@ -1,0 +1,74 @@
+---
+title: "Modes | Harness"
+description: "Learn how to configure and switch between named agent modes in a harness session."
+packages:
+  - "@mastra/core"
+---
+
+# Modes
+
+Modes let you define named agent configurations within a single harness. Each mode wraps an agent with optional tools, instructions, and a default model. Users can switch between modes during a session without losing thread context.
+
+## Define modes
+
+Pass a `modes` record to the harness config. Mark one mode as `default: true`:
+
+```typescript title="src/mastra/index.ts"
+import { Harness } from '@mastra/core/harness'
+import { Agent } from '@mastra/core/agent'
+
+const exploreAgent = new Agent({
+  id: 'explore-agent',
+  model: 'openai:gpt-4o',
+  instructions: 'Read and search the codebase. Do not make changes.',
+})
+
+const executeAgent = new Agent({
+  id: 'execute-agent',
+  model: 'anthropic:claude-sonnet-4-20250514',
+  instructions: 'Implement changes to the codebase.',
+})
+
+const harness = new Harness({
+  id: 'code-assistant',
+  modes: {
+    explore: {
+      id: 'explore',
+      agent: exploreAgent,
+      default: true,
+    },
+    execute: {
+      id: 'execute',
+      agent: executeAgent,
+    },
+  },
+})
+```
+
+## Switch modes
+
+Call `switchMode()` to change the active agent mode. The current thread is preserved:
+
+```typescript
+await harness.switchMode({ modeId: 'execute' })
+```
+
+The harness aborts any in-progress generation, saves the current model preference to the outgoing mode, and loads the new mode's agent and model.
+
+## Query modes
+
+```typescript
+// List all available modes
+const modes = harness.listModes()
+
+// Get the current mode ID
+const currentId = harness.getCurrentModeId()
+
+// Get the full mode object
+const current = harness.getCurrentMode()
+```
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [Threads and messages](/docs/harness/threads-and-messages)

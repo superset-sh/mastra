@@ -1,0 +1,85 @@
+---
+title: "Events and display state | Harness"
+description: "Learn how to subscribe to real-time harness events and use the display state machine to drive your UI."
+packages:
+  - "@mastra/core"
+---
+
+# Events and display state
+
+The harness emits a stream of typed events as the agent processes messages. A pre-computed display state machine consolidates these events into a single UI snapshot, making it straightforward to build reactive interfaces.
+
+## Subscribe to events
+
+Call `subscribe()` to receive events. It returns an unsubscribe function:
+
+```typescript
+const unsubscribe = harness.subscribe(event => {
+  switch (event.type) {
+    case 'agent_start':
+      console.log('Agent started processing')
+      break
+    case 'text_delta':
+      process.stdout.write(event.textDelta)
+      break
+    case 'tool_call_start':
+      console.log(`Calling tool: ${event.toolName}`)
+      break
+    case 'agent_end':
+      console.log('Agent finished')
+      break
+  }
+})
+
+// Stop listening
+unsubscribe()
+```
+
+## Event types
+
+The harness emits over 35 event types. Key categories include:
+
+| Category | Events |
+| - | - |
+| Session | `session_initialized` |
+| Agent lifecycle | `agent_start`, `agent_end`, `agent_error` |
+| Message streaming | `text_delta`, `thinking_delta`, `reasoning_delta` |
+| Tool lifecycle | `tool_call_start`, `tool_call_result`, `tool_call_error` |
+| Interactive prompts | `ask_question`, `plan_approval_required`, `tool_approval_required` |
+| Subagents | `subagent_start`, `subagent_end` |
+| State | `state_changed`, `display_state_changed` |
+| Token usage | `usage_update` |
+
+## Display state
+
+The display state is a snapshot object that updates before every event dispatch. It contains the information a UI needs to render the current session state:
+
+```typescript
+const state = harness.getDisplayState()
+// {
+//   isRunning: boolean
+//   currentModeId: string
+//   currentThreadId: string | null
+//   agentStatus: 'idle' | 'generating' | 'tool_calling' | ...
+//   pendingToolApproval: { ... } | null
+//   pendingQuestion: { ... } | null
+//   pendingPlanApproval: { ... } | null
+//   ...
+// }
+```
+
+Listen for `display_state_changed` events to reactively update your UI. This event fires after every other event, so you can either handle individual events or use display state as the sole source of truth:
+
+```typescript
+harness.subscribe(event => {
+  if (event.type === 'display_state_changed') {
+    renderUI(event.displayState)
+  }
+})
+```
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [Tool approval](/docs/harness/tool-approval)
+- [HTTP API](/docs/harness/http-api)

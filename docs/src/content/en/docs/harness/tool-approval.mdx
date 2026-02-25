@@ -1,0 +1,115 @@
+---
+title: "Tool approval | Harness"
+description: "Learn how to control which tools run automatically and which require user confirmation."
+packages:
+  - "@mastra/core"
+---
+
+# Tool approval
+
+The harness includes a tool approval system that controls whether tools run automatically or require user confirmation. This lets you build human-in-the-loop workflows where users review tool calls before they execute.
+
+## How approval works
+
+When the agent calls a tool, the harness resolves the tool's permission through a chain:
+
+1. **Yolo mode** — if enabled, all tools run without approval.
+1. **Per-tool policy** — a policy set for a specific tool name.
+1. **Session grants** — tools or categories granted for the current session.
+1. **Per-category policy** — a policy set for a tool category (e.g. `filesystem`, `shell`).
+1. **Fallback** — if none of the above match, the harness prompts the user for approval.
+
+## Respond to approval requests
+
+When a tool requires approval, the harness emits a `tool_approval_required` event and pauses execution. Call `respondToToolApproval()` to continue:
+
+```typescript
+harness.subscribe(event => {
+  if (event.type === 'tool_approval_required') {
+    // Show the user what tool is being called
+    console.log(`Tool: ${event.toolName}`)
+    console.log(`Args: ${JSON.stringify(event.args)}`)
+  }
+})
+
+// Approve the tool call
+harness.respondToToolApproval({ approved: true })
+
+// Or deny it
+harness.respondToToolApproval({ approved: false })
+
+// Approve and grant the entire category for this session
+harness.respondToToolApproval({
+  approved: true,
+  grantCategory: 'filesystem',
+})
+```
+
+## Set permission policies
+
+Configure permissions programmatically:
+
+```typescript
+// Set a category-level policy
+harness.setPermissionForCategory('filesystem', 'allow')
+harness.setPermissionForCategory('shell', 'ask')
+
+// Set a tool-level policy
+harness.setPermissionForTool('execute_command', 'ask')
+
+// Grant a category for the current session
+harness.grantSessionCategory('filesystem')
+
+// Grant a specific tool for the current session
+harness.grantSessionTool('view')
+```
+
+## Interactive prompts
+
+The harness also supports two other interactive patterns that pause execution and wait for user input:
+
+### Ask user
+
+The agent can ask the user a question using the built-in `askUserTool`. The harness emits an `ask_question` event:
+
+```typescript
+harness.subscribe(event => {
+  if (event.type === 'ask_question') {
+    console.log(event.question)
+  }
+})
+
+// Respond to the question
+harness.respondToQuestion({
+  questionId: 'q-123',
+  answer: 'Yes, proceed with the refactor.',
+})
+```
+
+### Plan approval
+
+The agent can submit a plan for approval using the built-in `submitPlanTool`. The harness emits a `plan_approval_required` event:
+
+```typescript
+harness.subscribe(event => {
+  if (event.type === 'plan_approval_required') {
+    console.log(event.plan)
+  }
+})
+
+// Approve the plan
+harness.respondToPlanApproval({ planId: 'p-456', approved: true })
+
+// Reject with feedback
+harness.respondToPlanApproval({
+  planId: 'p-456',
+  approved: false,
+  feedback: 'Skip the database migration step.',
+})
+```
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [Events and display state](/docs/harness/events-and-display-state)
+- [Agent approval](/docs/agents/agent-approval)

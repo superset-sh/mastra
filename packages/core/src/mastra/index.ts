@@ -11,6 +11,7 @@ import type { MastraScorer } from '../evals';
 import { EventEmitterPubSub } from '../events/event-emitter';
 import type { PubSub } from '../events/pubsub';
 import type { Event } from '../events/types';
+import type { Harness } from '../harness';
 import { AvailableHooks, registerHook } from '../hooks';
 import type { MastraModelGateway } from '../llm/model/gateways';
 import { LogLevel, noopLogger, ConsoleLogger } from '../logger';
@@ -52,7 +53,8 @@ function createUndefinedPrimitiveError(
     | 'mcp-server'
     | 'gateway'
     | 'memory'
-    | 'workspace',
+    | 'workspace'
+    | 'harness',
   value: null | undefined,
   key?: string,
 ): MastraError {
@@ -239,6 +241,14 @@ export interface Config<
   gateways?: Record<string, MastraModelGateway>;
 
   /**
+   * Harness instances for multi-mode agent sessions.
+   * Harnesses orchestrate agent modes, conversation threads, tool approval workflows,
+   * subagent delegation, and observational memory. They provide the backbone for
+   * interactive coding agents, chat interfaces, and similar session-based UIs.
+   */
+  harnesses?: Record<string, Harness<any>>;
+
+  /**
    * Event handlers for custom application events.
    * Maps event topics to handler functions for event-driven architectures.
    */
@@ -332,6 +342,7 @@ export class Mastra<
   #idGenerator?: MastraIdGenerator;
   #pubsub: PubSub;
   #gateways?: Record<string, MastraModelGateway>;
+  #harnesses: Record<string, Harness<any>> = {};
   #events: {
     [topic: string]: ((event: Event, cb?: () => Promise<void>) => Promise<void>)[];
   } = {};
@@ -676,6 +687,15 @@ export class Mastra<
       });
     }
 
+    // Harnesses are added after agents since harness modes contain agents
+    if (config?.harnesses) {
+      Object.entries(config.harnesses).forEach(([key, harness]) => {
+        if (harness != null) {
+          this.addHarness(harness, key);
+        }
+      });
+    }
+
     if (config?.tts) {
       Object.entries(config.tts).forEach(([key, tts]) => {
         if (tts != null) {
@@ -963,6 +983,158 @@ export class Mastra<
       if (agentId) {
         this.#storedAgentsCache.delete(agentId);
       }
+      return true;
+    }
+
+    return false;
+  }
+
+  // ===========================================================================
+  // Harnesses
+  // ===========================================================================
+
+  /**
+   * Registers a harness with the Mastra instance.
+   *
+   * Injects the logger, Mastra back-reference, and shared primitives (storage,
+   * memory, workspace) as fallbacks — config-level values on the harness take precedence.
+   *
+   * @param harness - The Harness instance to register
+   * @param key - Optional registration key (defaults to `harness.id`)
+   *
+   * @example
+   * ```typescript
+   * const harness = new Harness({
+   *   id: 'coding-agent',
+   *   modes: [{ id: 'build', default: true, agent: buildAgent }],
+   *   stateSchema: z.object({ currentModelId: z.string().optional() }),
+   * });
+   *
+   * mastra.addHarness(harness);
+   * ```
+   */
+  public addHarness(harness: Harness<any>, key?: string): void {
+    if (!harness) {
+      throw createUndefinedPrimitiveError('harness', harness, key);
+    }
+    const harnessKey = key || harness.id;
+    if (this.#harnesses[harnessKey]) {
+      this.#logger?.debug(`Harness with key ${harnessKey} already exists. Skipping addition.`);
+      return;
+    }
+
+    harness.__setLogger(this.#logger);
+    harness.__registerMastra(this);
+    harness.__registerPrimitives({
+      logger: this.getLogger(),
+      storage: this.getStorage(),
+      memory: Object.values(this.#memory ?? {})[0],
+      workspace: this.#workspace,
+    });
+
+    this.#harnesses[harnessKey] = harness;
+  }
+
+  /**
+   * Retrieves a registered harness by its registration key.
+   *
+   * @param name - The registration key of the harness
+   * @throws {MastraError} When no harness is found with the specified key
+   *
+   * @example
+   * ```typescript
+   * const harness = mastra.getHarness('coding-agent');
+   * await harness.init();
+   * await harness.sendMessage({ content: 'Hello!' });
+   * ```
+   */
+  public getHarness(name: string): Harness<any> {
+    const harness = this.#harnesses[name];
+    if (!harness) {
+      const error = new MastraError({
+        id: 'MASTRA_GET_HARNESS_BY_NAME_NOT_FOUND',
+        domain: ErrorDomain.MASTRA,
+        category: ErrorCategory.USER,
+        text: `Harness with name ${name} not found`,
+        details: {
+          status: 404,
+          harnessName: name,
+          harnesses: Object.keys(this.#harnesses).join(', '),
+        },
+      });
+      this.#logger?.trackException(error);
+      throw error;
+    }
+    return harness;
+  }
+
+  /**
+   * Retrieves a registered harness by its unique ID.
+   *
+   * Searches for a harness using its `id` property. Falls back to key-based
+   * lookup if no match is found by ID.
+   *
+   * @param id - The harness ID to search for
+   * @throws {MastraError} When no harness is found with the specified ID
+   */
+  public getHarnessById(id: string): Harness<any> {
+    let harness = Object.values(this.#harnesses).find(h => h.id === id);
+
+    if (!harness) {
+      try {
+        harness = this.getHarness(id);
+      } catch {
+        // do nothing
+      }
+    }
+
+    if (!harness) {
+      const error = new MastraError({
+        id: 'MASTRA_GET_HARNESS_BY_ID_NOT_FOUND',
+        domain: ErrorDomain.MASTRA,
+        category: ErrorCategory.USER,
+        text: `Harness with id ${id} not found`,
+        details: {
+          status: 404,
+          harnessId: id,
+          harnesses: Object.keys(this.#harnesses).join(', '),
+        },
+      });
+      this.#logger?.trackException(error);
+      throw error;
+    }
+
+    return harness;
+  }
+
+  /**
+   * Returns all registered harnesses as a record keyed by their registration keys.
+   *
+   * @example
+   * ```typescript
+   * const harnesses = mastra.listHarnesses();
+   * console.log(Object.keys(harnesses)); // ['coding-agent', 'review-agent']
+   * ```
+   */
+  public listHarnesses(): Record<string, Harness<any>> {
+    return this.#harnesses;
+  }
+
+  /**
+   * Removes a harness from the Mastra instance by its key or ID.
+   *
+   * @param keyOrId - The harness key or ID to remove
+   * @returns true if a harness was removed, false if no harness was found
+   */
+  public removeHarness(keyOrId: string): boolean {
+    if (this.#harnesses[keyOrId]) {
+      delete this.#harnesses[keyOrId];
+      return true;
+    }
+
+    const key = Object.keys(this.#harnesses).find(k => this.#harnesses[k]?.id === keyOrId);
+    if (key) {
+      delete this.#harnesses[key];
       return true;
     }
 

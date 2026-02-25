@@ -1,0 +1,81 @@
+---
+title: "Registration | Harness"
+description: "Learn how to register harnesses with the Mastra instance for dependency injection."
+packages:
+  - "@mastra/core"
+---
+
+# Registration
+
+Register harnesses with the Mastra instance so they inherit shared resources like storage, memory, logger, and workspace. This follows the same dependency injection pattern used by agents, workflows, and other Mastra components.
+
+## Register in the constructor
+
+Pass harnesses to the `Mastra` constructor using a keyed record:
+
+```typescript title="src/mastra/index.ts"
+import { Mastra } from '@mastra/core'
+import { Harness } from '@mastra/core/harness'
+import { Agent } from '@mastra/core/agent'
+
+const agent = new Agent({
+  id: 'my-agent',
+  model: 'openai:gpt-4o',
+  instructions: 'You are a helpful assistant.',
+})
+
+const harness = new Harness({
+  id: 'my-harness',
+  modes: {
+    default: { id: 'default', agent, default: true },
+  },
+})
+
+export const mastra = new Mastra({
+  agents: { agent },
+  harnesses: { myHarness: harness },
+})
+```
+
+## Register at runtime
+
+Add a harness after the Mastra instance is created with `addHarness()`:
+
+```typescript
+mastra.addHarness(harness)
+// or with a custom key:
+mastra.addHarness(harness, 'customKey')
+```
+
+If no key is provided, `harness.id` is used as the registration key.
+
+## Retrieve harnesses
+
+```typescript
+// By registration key
+const h = mastra.getHarness('myHarness')
+
+// By harness ID
+const h2 = mastra.getHarnessById('my-harness')
+
+// List all registered harnesses
+const all = mastra.listHarnesses()
+```
+
+## Resource injection
+
+When a harness is registered, Mastra injects the following as fallbacks. Config-level values on the harness always take precedence:
+
+| Resource | Fallback source |
+| - | - |
+| Logger | `Mastra` logger |
+| Storage | `Mastra` storage |
+| Memory | `Mastra` memory |
+| Workspace | `Mastra` workspace |
+
+This means you don't need to pass storage or memory to the harness if the Mastra instance already has them configured.
+
+## Related
+
+- [Harness overview](/docs/harness/overview)
+- [HTTP API](/docs/harness/http-api)

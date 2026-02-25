@@ -412,6 +412,50 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Harness',
+      customProps: {
+        tags: ['new'],
+      },
+      items: [
+        {
+          type: 'doc',
+          id: 'harness/overview',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'harness/registration',
+          label: 'Registration',
+        },
+        {
+          type: 'doc',
+          id: 'harness/modes',
+          label: 'Modes',
+        },
+        {
+          type: 'doc',
+          id: 'harness/threads-and-messages',
+          label: 'Threads & Messages',
+        },
+        {
+          type: 'doc',
+          id: 'harness/events-and-display-state',
+          label: 'Events & Display State',
+        },
+        {
+          type: 'doc',
+          id: 'harness/tool-approval',
+          label: 'Tool Approval',
+        },
+        {
+          type: 'doc',
+          id: 'harness/http-api',
+          label: 'HTTP API',
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Deployment',
       items: [
         {

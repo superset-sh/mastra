@@ -1,0 +1,71 @@
+---
+title: "Harness overview | Harness"
+description: "Learn how the Harness orchestrates multi-mode agent sessions with conversation threads, tool approval, and real-time events."
+packages:
+  - "@mastra/core"
+---
+
+# Harness
+
+The Harness is a high-level orchestration layer that manages multi-mode agent sessions. It sits between your UI and Mastra's Agent, Memory, and Storage primitives, handling conversation threads, tool approval workflows, subagent delegation, observational memory, and a real-time event stream.
+
+- [**Registration**](/docs/harness/registration): Register harnesses with the Mastra instance so they inherit shared resources.
+- [**Modes**](/docs/harness/modes): Configure named agent modes that users can switch between during a session.
+- [**Threads and messages**](/docs/harness/threads-and-messages): Manage conversation threads, send messages, and list message history.
+- [**Events and display state**](/docs/harness/events-and-display-state): Subscribe to real-time events and use the display state machine to drive your UI.
+- [**Tool approval and permissions**](/docs/harness/tool-approval): Control which tools run automatically and which require user confirmation.
+- [**HTTP API**](/docs/harness/http-api): Expose harnesses as HTTP endpoints through the Mastra server.
+
+## When to use a harness
+
+Use a harness when you need to build an interactive agent session with one or more of the following:
+
+- Multiple agent modes (e.g. explore, plan, execute) that users can switch between
+- Persistent conversation threads with memory
+- Tool approval workflows where certain tools require user confirmation before executing
+- Interactive prompts where the agent asks the user questions or submits plans for approval
+- Real-time event streaming to drive a UI (terminal, web, or mobile)
+- Subagent delegation where child agents run with constrained tools and instructions
+
+## Get started
+
+Register a harness with your Mastra instance:
+
+```typescript title="src/mastra/index.ts"
+import { Mastra } from '@mastra/core'
+import { Harness } from '@mastra/core/harness'
+import { Agent } from '@mastra/core/agent'
+
+const myAgent = new Agent({
+  id: 'my-agent',
+  model: 'openai:gpt-4o',
+  instructions: 'You are a helpful assistant.',
+})
+
+const harness = new Harness({
+  id: 'my-harness',
+  modes: {
+    default: {
+      id: 'default',
+      agent: myAgent,
+      default: true,
+    },
+  },
+})
+
+export const mastra = new Mastra({
+  agents: { myAgent },
+  harnesses: { myHarness: harness },
+})
+```
+
+The Mastra instance injects shared resources (logger, storage, memory, workspace) into the harness as fallbacks. Values set directly on the harness config take precedence.
+
+## Next steps
+
+- [Registration](/docs/harness/registration)
+- [Modes](/docs/harness/modes)
+- [Threads and messages](/docs/harness/threads-and-messages)
+- [Events and display state](/docs/harness/events-and-display-state)
+- [Tool approval](/docs/harness/tool-approval)
+- [HTTP API](/docs/harness/http-api)
