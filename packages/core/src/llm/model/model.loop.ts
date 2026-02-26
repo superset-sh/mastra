@@ -6,7 +6,7 @@ import { MastraError, ErrorDomain, ErrorCategory } from '../../error';
 import { loop } from '../../loop';
 import type { LoopOptions } from '../../loop/types';
 import type { Mastra } from '../../mastra';
-import { SpanType } from '../../observability';
+import { SpanType, resolveObservabilityContext } from '../../observability';
 import type { MastraModelOutput } from '../../stream/base/output';
 import type { ModelManagerModelConfig } from '../../stream/types';
 import { delay } from '../../utils';
@@ -114,7 +114,6 @@ export class MastraLLMVNext extends MastraBase {
     outputProcessors,
     returnScorerData,
     providerOptions,
-    tracingContext,
     messageList,
     requireToolApproval,
     toolCallConcurrency,
@@ -132,7 +131,9 @@ export class MastraLLMVNext extends MastraBase {
     isTaskComplete,
     onIterationComplete,
     workspace,
+    ...rest
   }: ModelLoopStreamArgs<Tools, OUTPUT>): MastraModelOutput<OUTPUT> {
+    const observabilityContext = resolveObservabilityContext(rest);
     let stopWhenToUse;
 
     if (maxSteps && typeof maxSteps === 'number') {
@@ -152,7 +153,7 @@ export class MastraLLMVNext extends MastraBase {
       tools: Object.keys(tools || {}),
     });
 
-    const modelSpan = tracingContext?.currentSpan?.createChildSpan({
+    const modelSpan = observabilityContext.tracingContext.currentSpan?.createChildSpan({
       name: `llm: '${firstModel.modelId}'`,
       type: SpanType.MODEL_GENERATION,
       input: {
@@ -208,6 +209,7 @@ export class MastraLLMVNext extends MastraBase {
         isTaskComplete,
         onIterationComplete,
         workspace,
+        ...observabilityContext,
         options: {
           ...options,
           onStepFinish: async props => {

@@ -3,7 +3,18 @@ import type { ZodType as ZodTypeV3, ZodObject as ZodObjectV3 } from 'zod/v3';
 import type { ZodType as ZodTypeV4, ZodObject as ZodObjectV4 } from 'zod/v4';
 import type { Targets } from 'zod-to-json-schema';
 import type { ZodType } from '../schema.types';
-import { isOptional, isObj, isArr, isUnion, isDefault, isNumber, isString, isDate, isNullable } from '../zodTypes';
+import {
+  isOptional,
+  isObj,
+  isArr,
+  isUnion,
+  isDefault,
+  isNumber,
+  isString,
+  isDate,
+  isNullable,
+  isNull,
+} from '../zodTypes';
 import { OpenAISchemaCompatLayer } from './openai';
 
 export class OpenAIReasoningSchemaCompatLayer extends OpenAISchemaCompatLayer {
@@ -87,6 +98,11 @@ export class OpenAIReasoningSchemaCompatLayer extends OpenAISchemaCompatLayer {
       return this.defaultZodStringHandler(value);
     } else if (isDate(z)(value)) {
       return this.defaultZodDateHandler(value);
+    } else if (isNull(z)(value)) {
+      return z
+        .any()
+        .refine(v => v === null, { message: 'must be null' })
+        .describe(value.description || 'must be null');
     } else if (value.constructor.name === 'ZodAny') {
       // It's bad practice in the tool to use any, it's not reasonable for models that don't support that OOTB, to cast every single possible type
       // in the schema. Usually when it's "any" it could be a json object or a union of specific types.

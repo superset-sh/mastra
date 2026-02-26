@@ -6,7 +6,7 @@ import type { MastraScorers } from '../evals';
 import type { PubSub } from '../events/pubsub';
 import type { IMastraLogger } from '../logger';
 import type { Mastra } from '../mastra';
-import type { AnySpan, TracingContext, TracingOptions, TracingPolicy, TracingProperties } from '../observability';
+import type { AnySpan, ObservabilityContext, TracingOptions, TracingPolicy, TracingProperties } from '../observability';
 import type { RequestContext } from '../request-context';
 import type { InferPublicSchema, PublicSchema, StandardSchemaWithJSON, InferStandardSchemaOutput } from '../schema';
 import type { OutputSchema } from '../stream';
@@ -24,14 +24,13 @@ export type OutputWriter<TChunk = any> = (chunk: TChunk) => Promise<void>;
  */
 export type WorkflowRunStartOptions = {
   outputWriter?: OutputWriter;
-  tracingContext?: TracingContext;
   tracingOptions?: TracingOptions;
   outputOptions?: {
     includeState?: boolean;
     includeResumeLabels?: boolean;
   };
   perStep?: boolean;
-};
+} & Partial<ObservabilityContext>;
 
 export type { ChunkType, WorkflowStreamEvent } from '../stream/types';
 export type { MastraWorkflowStream } from '../stream/MastraWorkflowStream';
@@ -928,7 +927,6 @@ export type RegularStepExecutionParams = {
   pubsub: PubSub;
   abortController: AbortController;
   requestContext: RequestContext;
-  tracingContext?: TracingContext;
   writableStream?: WritableStream<ChunkType>;
   startedAt: number;
   resumeDataToUse?: any;
@@ -938,7 +936,7 @@ export type RegularStepExecutionParams = {
   serializedStepGraph: SerializedStepFlowEntry[];
   resourceId?: string;
   disableScorers?: boolean;
-};
+} & Partial<ObservabilityContext>;
 
 /**
  * Result from step execution core logic

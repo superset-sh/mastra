@@ -12,7 +12,7 @@ import {
 import { z } from 'zod/v4';
 import { MastraBase } from '../../base';
 import { ErrorCategory, MastraError, ErrorDomain } from '../../error';
-import { SpanType, wrapMastra, executeWithContext, EntityType } from '../../observability';
+import { SpanType, wrapMastra, executeWithContext, EntityType, createObservabilityContext } from '../../observability';
 import { RequestContext } from '../../request-context';
 import { isStandardSchemaWithJSON, toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
 import { isVercelTool } from '../../tools/toolchecks';
@@ -60,7 +60,8 @@ export class CoreToolBuilder extends MastraBase {
     if (
       !isVercelTool(this.originalTool) &&
       (input.autoResumeSuspendedTools ||
-        (this.originalTool as unknown as ToolAction<any, any>).id?.startsWith('agent-'))
+        (this.originalTool as unknown as ToolAction<any, any>).id?.startsWith('agent-') ||
+        (this.originalTool as unknown as ToolAction<any, any>).id?.startsWith('workflow-'))
     ) {
       let schema = this.originalTool.inputSchema;
       if (typeof schema === 'function') {
@@ -370,7 +371,7 @@ export class CoreToolBuilder extends MastraBase {
               },
               options.outputWriter || execOptions.outputWriter,
             ),
-            tracingContext: { currentSpan: toolSpan },
+            ...createObservabilityContext({ currentSpan: toolSpan }),
             abortSignal: execOptions.abortSignal,
             suspend: (args: any, suspendOptions?: SuspendOptions) => {
               suspendData = args;
@@ -684,7 +685,6 @@ export class CoreToolBuilder extends MastraBase {
             this.originalTool,
             { ...this.options, description: this.originalTool.description },
             this.logType,
-            processedInputSchema ? toStandardSchema(processedInputSchema) : undefined, // Pass the processed Zod schema for validation
           )
         : undefined,
     };

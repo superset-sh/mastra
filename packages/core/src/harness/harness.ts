@@ -1,5 +1,6 @@
 import type { Agent } from '../agent';
 import type { ToolsInput, ToolsetsInput } from '../agent/types';
+import { Mastra } from '../mastra';
 import type { StorageThreadType } from '../memory/types';
 import { RequestContext } from '../request-context';
 import { toStandardSchema } from '../schema';
@@ -93,6 +94,7 @@ export class Harness<TState extends HarnessStateSchema<any> = HarnessStateSchema
   private sessionGrantedCategories = new Set<string>();
   private sessionGrantedTools = new Set<string>();
   private displayState: HarnessDisplayState = defaultDisplayState();
+  #internalMastra: Mastra | undefined = undefined;
 
   constructor(config: HarnessConfig<TState>) {
     this.id = config.id;
@@ -140,8 +142,13 @@ export class Harness<TState extends HarnessStateSchema<any> = HarnessStateSchema
    * Must be called before using the harness.
    */
   async init(): Promise<void> {
+    // Create an internal Mastra instance so agents have access to storage
+    // (required for tool approval snapshot persistence/resume).
+    // We init storage through Mastra's proxied storage so augmentWithInit
+    // tracks it and won't double-init.
     if (this.config.storage) {
-      await this.config.storage.init();
+      this.#internalMastra = new Mastra({ logger: false, storage: this.config.storage });
+      await this.#internalMastra.getStorage()!.init();
     }
 
     // Initialize workspace if configured (skip for dynamic factory — resolved per-request)
@@ -171,17 +178,23 @@ export class Harness<TState extends HarnessStateSchema<any> = HarnessStateSchema
       }
     }
 
-    // Propagate harness-level memory and workspace to mode agents (after workspace init)
+    // Propagate harness-level Mastra, memory, and workspace to mode agents (after workspace init)
     const workspaceForAgents = this.workspaceFn ?? this.workspace;
     for (const mode of this.config.modes) {
       const agent = typeof mode.agent === 'function' ? null : mode.agent;
       if (!agent) continue;
+
+      const alreadyHasMastra = !!agent.getMastraInstance();
 
       if (this.config.memory && !agent.hasOwnMemory()) {
         agent.__setMemory(this.config.memory);
       }
       if (workspaceForAgents && !agent.hasOwnWorkspace()) {
         agent.__setWorkspace(workspaceForAgents);
+      }
+
+      if (this.#internalMastra && !alreadyHasMastra) {
+        this.#internalMastra.addAgent(agent);
       }
     }
 
@@ -399,6 +412,12 @@ export class Harness<TState extends HarnessStateSchema<any> = HarnessStateSchema
 
     if (scope === 'thread') {
       await this.setThreadSetting({ key: `modeModelId_${targetModeId}`, value: modelId });
+    }
+
+    try {
+      await Promise.resolve(this.config.modelUseCountTracker?.(modelId));
+    } catch (error) {
+      console.error('Failed to track model usage count', error);
     }
 
     this.emit({ type: 'model_changed', modelId, scope, modeId: targetModeId } as HarnessEvent);
@@ -1834,6 +1853,7 @@ export class Harness<TState extends HarnessStateSchema<any> = HarnessStateSchema
     }
 
     const agent = this.getCurrentAgent();
+
     if (!this.abortController) {
       this.abortController = new AbortController();
     }

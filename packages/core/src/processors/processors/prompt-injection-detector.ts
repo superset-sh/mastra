@@ -5,7 +5,8 @@ import type { MastraDBMessage } from '../../agent/message-list';
 import { TripWire } from '../../agent/trip-wire';
 import type { ProviderOptions } from '../../llm/model/provider-options';
 import type { MastraModelConfig } from '../../llm/model/shared.types';
-import type { TracingContext } from '../../observability';
+import { resolveObservabilityContext } from '../../observability';
+import type { ObservabilityContext } from '../../observability';
 import type { PublicSchema } from '../../schema';
 import { toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
 import type { Processor } from '../index';
@@ -137,13 +138,15 @@ export class PromptInjectionDetector implements Processor<'prompt-injection-dete
     });
   }
 
-  async processInput(args: {
-    messages: MastraDBMessage[];
-    abort: (reason?: string) => never;
-    tracingContext?: TracingContext;
-  }): Promise<MastraDBMessage[]> {
+  async processInput(
+    args: {
+      messages: MastraDBMessage[];
+      abort: (reason?: string) => never;
+    } & Partial<ObservabilityContext>,
+  ): Promise<MastraDBMessage[]> {
     try {
-      const { messages, abort, tracingContext } = args;
+      const { messages, abort, ...rest } = args;
+      const observabilityContext = resolveObservabilityContext(rest);
 
       if (messages.length === 0) {
         return messages;
@@ -161,7 +164,7 @@ export class PromptInjectionDetector implements Processor<'prompt-injection-dete
           continue;
         }
 
-        const detectionResult = await this.detectPromptInjection(textContent, tracingContext);
+        const detectionResult = await this.detectPromptInjection(textContent, observabilityContext);
         results.push(detectionResult);
 
         if (this.isInjectionFlagged(detectionResult)) {
@@ -196,7 +199,7 @@ export class PromptInjectionDetector implements Processor<'prompt-injection-dete
    */
   private async detectPromptInjection(
     content: string,
-    tracingContext?: TracingContext,
+    observabilityContext?: ObservabilityContext,
   ): Promise<PromptInjectionResult> {
     const prompt = this.createDetectionPrompt(content);
     try {
@@ -241,7 +244,7 @@ export class PromptInjectionDetector implements Processor<'prompt-injection-dete
             temperature: 0,
           },
           providerOptions: this.providerOptions,
-          tracingContext,
+          ...observabilityContext,
         });
 
         if (!response.object) {
@@ -254,7 +257,7 @@ export class PromptInjectionDetector implements Processor<'prompt-injection-dete
           output: standardSchemaToJSONSchema(standardSchema),
           temperature: 0,
           providerOptions: this.providerOptions as SharedV2ProviderOptions,
-          tracingContext,
+          ...observabilityContext,
         });
 
         if (!response.object) {

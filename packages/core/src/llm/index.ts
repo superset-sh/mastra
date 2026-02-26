@@ -16,7 +16,7 @@ import type {
 } from '@internal/ai-sdk-v4';
 import type { SystemModelMessage } from '@internal/ai-sdk-v5';
 
-import type { TracingContext } from '../observability';
+import type { ObservabilityContext } from '../observability';
 import type { RequestContext } from '../request-context';
 import type { Run } from '../run/types';
 import type { StandardSchemaWithJSON } from '../schema';
@@ -110,14 +110,13 @@ export type DefaultLLMTextObjectOptions = Omit<GenerateObjectOptions, MastraCust
 export type DefaultLLMStreamOptions = Omit<StreamTextOptions, MastraCustomLLMOptionsKeys>;
 export type DefaultLLMStreamObjectOptions = Omit<StreamObjectOptions, MastraCustomLLMOptionsKeys>;
 
-type MastraCustomLLMOptions<Z extends StandardSchemaWithJSON | undefined = undefined> = {
+type MastraCustomLLMOptions<Z extends StandardSchemaWithJSON | undefined = undefined> = ObservabilityContext & {
   tools?: Record<string, CoreTool>;
   onStepFinish?: (step: unknown) => Promise<void> | void;
   experimental_output?: Z;
   threadId?: string;
   resourceId?: string;
   requestContext: RequestContext;
-  tracingContext: TracingContext;
 } & Run;
 
 export type LLMTextOptions<Z extends StandardSchemaWithJSON | undefined = undefined> = {
