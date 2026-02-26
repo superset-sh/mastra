@@ -24,6 +24,7 @@ import { MastraSandbox, SandboxNotReadyError } from '@mastra/core/workspace';
 import { shellQuote } from '../utils/shell-quote';
 import { mountS3, mountGCS, LOG_PREFIX, runCommand } from './mounts';
 import type { BlaxelMountConfig, BlaxelS3MountConfig, BlaxelGCSMountConfig, MountContext } from './mounts';
+import { BlaxelProcessManager } from './process-manager';
 
 /** Allowlist pattern for mount paths — absolute path with safe characters only. */
 const SAFE_MOUNT_PATH = /^\/[a-zA-Z0-9_.\-/]+$/;
@@ -166,7 +167,11 @@ export class BlaxelSandbox extends MastraSandbox {
   declare readonly mounts: MountManager; // Non-optional (initialized by BaseSandbox)
 
   constructor(options: BlaxelSandboxOptions = {}) {
-    super({ ...options, name: 'BlaxelSandbox' });
+    super({
+      ...options,
+      name: 'BlaxelSandbox',
+      processes: new BlaxelProcessManager({ env: options.env }),
+    });
 
     this.id = options.id ?? this.generateId();
     this.image = options.image ?? 'blaxel/ts-app:latest';
@@ -700,6 +705,16 @@ export class BlaxelSandbox extends MastraSandbox {
    * Status management is handled by the base class.
    */
   async stop(): Promise<void> {
+    // Kill all tracked processes before stopping
+    if (this.processes) {
+      try {
+        const procs = await this.processes.list();
+        await Promise.all(procs.filter(p => p.running).map(p => this.processes!.kill(p.pid)));
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+
     // Unmount all filesystems before stopping
     // Collect keys first since unmount() mutates the map
     for (const mountPath of [...this.mounts.entries.keys()]) {
@@ -719,6 +734,16 @@ export class BlaxelSandbox extends MastraSandbox {
    * Status management is handled by the base class.
    */
   async destroy(): Promise<void> {
+    // Kill all tracked processes before destroying
+    if (this.processes) {
+      try {
+        const procs = await this.processes.list();
+        await Promise.all(procs.filter(p => p.running).map(p => this.processes!.kill(p.pid)));
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+
     // Unmount all filesystems
     // Collect keys first since unmount() mutates the map
     for (const mountPath of [...this.mounts.entries.keys()]) {
@@ -805,7 +830,8 @@ export class BlaxelSandbox extends MastraSandbox {
     return (
       errorStr.includes('terminated') ||
       errorStr.includes('sandbox was not found') ||
-      errorStr.includes('sandbox not found')
+      errorStr.includes('sandbox not found') ||
+      errorStr.includes('"not found"')
     );
   }
 
@@ -827,6 +853,32 @@ export class BlaxelSandbox extends MastraSandbox {
     }
 
     this.status = 'stopped';
+  }
+
+  /**
+   * Execute an operation with automatic retry if the sandbox is found to be dead.
+   *
+   * When the Blaxel sandbox times out or crashes mid-operation, this method
+   * resets sandbox state, restarts it, and retries the operation once.
+   *
+   * @internal Used by BlaxelProcessManager to handle dead sandboxes during spawn.
+   */
+  async retryOnDead<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      if (this.isSandboxDeadError(error) && !this._isRetrying) {
+        this.handleSandboxTimeout();
+        this._isRetrying = true;
+        try {
+          await this.ensureRunning();
+          return await fn();
+        } finally {
+          this._isRetrying = false;
+        }
+      }
+      throw error;
+    }
   }
 
   // ---------------------------------------------------------------------------
