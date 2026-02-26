@@ -421,7 +421,6 @@ describe('E2BSandbox', () => {
 
       expect(instructions).toContain('sandbox');
     });
-
   });
 
   describe('isReady()', () => {

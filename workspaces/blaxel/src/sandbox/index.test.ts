@@ -327,7 +327,6 @@ describe('BlaxelSandbox', () => {
 
       expect(instructions).toContain('sandbox');
     });
-
   });
 
   describe('isReady()', () => {
