@@ -18,8 +18,8 @@ export interface DaytonaS3MountConfig extends FilesystemMountConfig {
   type: 's3';
   /** S3 bucket name */
   bucket: string;
-  /** AWS region */
-  region: string;
+  /** AWS region (informational — s3fs auto-detects region from the bucket) */
+  region?: string;
   /** S3 endpoint for S3-compatible storage (MinIO, etc.) */
   endpoint?: string;
   /** AWS access key ID (optional - omit for public buckets) */
@@ -80,7 +80,12 @@ export async function mountS3(mountPath: string, config: DaytonaS3MountConfig, c
   const [uid, gid] = idResult.stdout.trim().split('\n');
 
   // Determine if we have credentials or using public bucket mode
-  const hasCredentials = config.accessKeyId && config.secretAccessKey;
+  const hasAccessKey = !!config.accessKeyId;
+  const hasSecretKey = !!config.secretAccessKey;
+  if (hasAccessKey !== hasSecretKey) {
+    throw new Error('Both accessKeyId and secretAccessKey must be provided together.');
+  }
+  const hasCredentials = hasAccessKey && hasSecretKey;
 
   // Use a mount-specific credentials path to avoid races with concurrent mounts
   const mountHash = crypto.createHash('md5').update(mountPath).digest('hex').slice(0, 8);
@@ -135,8 +140,10 @@ export async function mountS3(mountPath: string, config: DaytonaS3MountConfig, c
   }
 
   // Mount with sudo (required for /dev/fuse access)
+  // Quote bucket, mount path, and each option to prevent shell injection
   const quotedMountPath = shellQuote(mountPath);
-  const mountCmd = `sudo s3fs ${config.bucket} ${quotedMountPath} -o ${mountOptions.join(' -o ')}`;
+  const optionFlags = mountOptions.map(opt => `-o ${shellQuote(opt)}`).join(' ');
+  const mountCmd = `sudo s3fs ${shellQuote(config.bucket)} ${quotedMountPath} ${optionFlags}`;
   logger.debug(`${LOG_PREFIX} Mounting S3:`, hasCredentials ? mountCmd.replace(credentialsPath, '***') : mountCmd);
 
   const result = await runCommand(sandbox, mountCmd, { timeout: 60_000 });

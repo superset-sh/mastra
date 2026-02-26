@@ -35,12 +35,18 @@ import type { DaytonaResources } from './types';
 /** Allowlist pattern for mount paths — absolute path with safe characters only. */
 const SAFE_MOUNT_PATH = /^\/[a-zA-Z0-9_.\-/]+$/;
 
+/** Default timeout for mount lifecycle shell commands (mkdir, unmount, proc reads, etc.) */
+const MOUNT_COMMAND_TIMEOUT_MS = 30_000;
+
 /** Convert an unknown error to a readable string. */
 function errorToString(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === 'string') return error;
-  if (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
-    return (error as any).message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    const maybeError = error as { message?: unknown };
+    if (typeof maybeError.message === 'string') {
+      return maybeError.message;
+    }
   }
   try {
     return JSON.stringify(error);
@@ -54,6 +60,10 @@ function validateMountPath(mountPath: string): void {
     throw new Error(
       `Invalid mount path: ${mountPath}. Must be an absolute path with alphanumeric, dash, dot, underscore, or slash characters only.`,
     );
+  }
+  const segments = mountPath.split('/');
+  if (mountPath.includes('//') || segments.some(segment => segment === '.' || segment === '..')) {
+    throw new Error(`Invalid mount path: ${mountPath}. Path traversal segments are not allowed.`);
   }
 }
 
@@ -523,6 +533,7 @@ export class DaytonaSandbox extends MastraSandbox {
       const checkResult = await runCommand(
         this._sandbox,
         `[ -d "${mountPath}" ] && [ "$(ls -A "${mountPath}" 2>/dev/null)" ] && echo "non-empty" || echo "ok"`,
+        { timeout: MOUNT_COMMAND_TIMEOUT_MS },
       );
       if (checkResult.stdout.trim() === 'non-empty') {
         const error = `Cannot mount at ${mountPath}: directory exists and is not empty. Mounting would hide existing files. Use a different path or empty the directory first.`;
@@ -626,6 +637,7 @@ export class DaytonaSandbox extends MastraSandbox {
       const result = await runCommand(
         this._sandbox,
         `sudo fusermount -u "${mountPath}" 2>/dev/null || sudo umount "${mountPath}"`,
+        { timeout: MOUNT_COMMAND_TIMEOUT_MS },
       );
       if (result.exitCode !== 0) {
         this.logger.debug(`${LOG_PREFIX} Unmount warning: ${result.stderr || result.stdout}`);
@@ -672,6 +684,7 @@ export class DaytonaSandbox extends MastraSandbox {
     const mountsResult = await runCommand(
       this._sandbox,
       `grep -E 'fuse\\.(s3fs|gcsfuse)' /proc/mounts | awk '{print $2}' || true`,
+      { timeout: MOUNT_COMMAND_TIMEOUT_MS },
     );
     const currentMounts = mountsResult.stdout
       .trim()

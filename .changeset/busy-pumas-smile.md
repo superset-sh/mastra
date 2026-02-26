@@ -9,13 +9,12 @@ Added S3 and GCS cloud filesystem mounting support via FUSE (s3fs-fuse, gcsfuse)
 - `mount(filesystem, mountPath)` — Mount an S3 or GCS filesystem at a path in the sandbox
 - `unmount(mountPath)` — Unmount a previously mounted filesystem
 
-**Features:**
+**What changed:**
 
-- Automatic s3fs/gcsfuse installation if not present in the sandbox image
-- Marker file tracking for mount config change detection on reconnect
-- Non-empty directory safety checks before mounting
-- Mount reconciliation on sandbox reconnection (cleans up stale mounts)
-- Per-mount credential isolation to support concurrent mounts
+- Added S3 and GCS bucket mounts as local directories in Daytona sandboxes.
+- Improved reconnect behavior so mounts are restored reliably.
+- Added safety checks to prevent mounting into non-empty directories.
+- Improved concurrent mount support by isolating credentials per mount.
 
 **Usage:**
 
