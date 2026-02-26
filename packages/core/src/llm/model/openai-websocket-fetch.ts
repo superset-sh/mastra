@@ -156,7 +156,7 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
             () => {
               cleanup();
               try {
-                controller.error(init.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+                controller.error(init?.signal?.reason ?? new DOMException('Aborted', 'AbortError'));
               } catch {
                 // already closed
               }
