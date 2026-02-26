@@ -824,11 +824,11 @@ export class BlaxelSandbox extends MastraSandbox {
    */
   private isSandboxDeadError(error: unknown): boolean {
     if (!error) return false;
-    const errorStr = errorToString(error);
+    const errorStr = errorToString(error).toLowerCase();
     return (
-      errorStr.includes('TERMINATED') ||
+      errorStr.includes('terminated') ||
       errorStr.includes('sandbox was not found') ||
-      errorStr.includes('Sandbox not found')
+      errorStr.includes('sandbox not found')
     );
   }
 
@@ -882,14 +882,18 @@ export class BlaxelSandbox extends MastraSandbox {
         Object.entries(mergedEnv).filter((entry): entry is [string, string] => entry[1] !== undefined),
       );
 
-      // Pass timeout to Blaxel API (server-side) AND enforce client-side via Promise.race
-      // as a safety net, since the Blaxel API timeout is not always enforced.
+      // Pass timeout to Blaxel API (in seconds) AND enforce client-side via Promise.race.
+      // The API enforces timeout for non-streaming requests, but when onStdout/onStderr
+      // callbacks are present the SDK uses a streaming path that ignores the timeout param.
+      // Promise.race ensures timeout is always enforced regardless of code path.
+      const apiTimeout = options.timeout ? Math.ceil(options.timeout / 1000) : undefined;
+
       const execPromise = sandbox.process.exec({
         command: fullCommand,
         workingDir: options.cwd,
         env: envRecord,
         waitForCompletion: true,
-        ...(options.timeout && { timeout: Math.ceil(options.timeout / 1000) }),
+        ...(apiTimeout && { timeout: apiTimeout }),
         ...(options.onStdout || options.onStderr
           ? {
               onStdout: options.onStdout,
