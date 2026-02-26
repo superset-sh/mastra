@@ -2,23 +2,15 @@
 '@mastra/core': minor
 ---
 
-Sandbox tool results sent to the model now omit ANSI color codes while streamed output keeps colors. This reduces token usage and improves model readability.
+Workspace sandbox tool results (`execute_command`, `kill_process`, `get_process_output`) sent to the model now strip ANSI color codes via `toModelOutput`, while streamed output to the user keeps colors. This reduces token usage and improves model readability.
 
-Commands ending with `| tail -N` now stream output live and still return only the last N lines in the final result, preventing long commands from blocking streaming.
+Workspace `execute_command` tool now extracts trailing `| tail -N` pipes from commands so output streams live to the user, while the final result sent to the model is still truncated to the last N lines.
 
-Workspace tools that return potentially large output (`grep`, `read_file`, `list_files`, `execute_command`) now enforce a token-based output limit (~3k tokens by default, configurable via `maxOutputTokens` in tool config). Token estimation uses a `words * 1.3` heuristic. This replaces the previous character-based limit with a more model-friendly token budget.
+Workspace tools that return potentially large output now enforce a token-based output limit (~3k tokens by default) using tiktoken for accurate counting. The limit is configurable per-tool via `maxOutputTokens` in `WorkspaceToolConfig`. Each tool uses a truncation strategy suited to its output:
+- `read_file`, `grep`, `list_files` — truncate from the end (keep imports, first matches, top-level tree)
+- `execute_command`, `get_process_output`, `kill_process` — head+tail sandwich (keep early output + final status)
 
 ```ts
-// ANSI stripping (automatic via toModelOutput on sandbox tools):
-// Streamed to user: "\x1b[32mSuccess\x1b[0m" (colored)
-// Sent to model:    "Success" (clean text, fewer tokens)
-
-// Tail pipe extraction:
-// Agent calls: execute_command({ command: "npm test | tail -20" })
-// What actually runs: "npm test" (all output streams live to user)
-// What the model gets: last 20 lines only
-
-// Configurable token limit:
 const workspace = new Workspace({
   tools: {
     mastra_workspace_execute_command: {
