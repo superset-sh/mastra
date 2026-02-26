@@ -29,11 +29,11 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
   let busy = false;
 
   function getConnection(authorization: string, headers: Record<string, string>): Promise<WebSocket> {
-    if (ws?.readyState === WebSocket.OPEN && !busy) {
+    if (ws?.readyState === WebSocket.OPEN) {
       return Promise.resolve(ws);
     }
 
-    if (connecting && !busy) return connecting;
+    if (connecting) return connecting;
 
     const normalizedHeaders = { ...normalizeHeaders(options?.headers), ...headers };
     delete normalizedHeaders['authorization'];
