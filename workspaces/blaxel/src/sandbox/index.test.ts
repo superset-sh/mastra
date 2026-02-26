@@ -124,7 +124,7 @@ describe('BlaxelSandbox', () => {
     it('uses default image and memory', () => {
       const sandbox = new BlaxelSandbox();
 
-      expect((sandbox as any).image).toBe('blaxel/node:latest');
+      expect((sandbox as any).image).toBe('blaxel/ts-app:latest');
       expect((sandbox as any).memory).toBe(4096);
     });
 
@@ -1737,6 +1737,9 @@ describe('BlaxelSandbox Internal Methods', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('not empty');
+
+      // Reset mocks so the custom mockImplementation doesn't leak into subsequent tests
+      resetMockDefaults();
     });
   });
 });

@@ -226,6 +226,13 @@ export function createMountOperationsTests(getContext: () => TestContext): void 
           await sandbox.executeCommand('mkdir', ['-p', testDir]);
           await sandbox.executeCommand('sh', ['-c', `echo "existing" > ${testDir}/file.txt`]);
 
+          // Verify the file was actually created (mocked sandboxes may not have
+          // real filesystem side effects, in which case this test can't work)
+          const verifyResult = await sandbox.executeCommand('ls', [testDir]);
+          if (!verifyResult.stdout.includes('file.txt')) {
+            return;
+          }
+
           const mockFilesystem = {
             id: 'test-fs-nonempty',
             name: 'MockFS',

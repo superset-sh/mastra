@@ -71,7 +71,10 @@ export interface BlaxelSandboxOptions extends MastraSandboxOptions {
   /**
    * Docker image to use for the sandbox.
    *
-   * @default 'blaxel/node:latest'
+   * Debian-based images (`ts-app`, `py-app`, `jupyter-*`) support both S3 and GCS mounts.
+   * Alpine-based images (`node`, `nextjs`, `vite`) support S3 mounts only (gcsfuse is unavailable on Alpine).
+   *
+   * @default 'blaxel/ts-app:latest'
    */
   image?: string;
   /**
@@ -167,7 +170,7 @@ export class BlaxelSandbox extends MastraSandbox {
     super({ ...options, name: 'BlaxelSandbox' });
 
     this.id = options.id ?? this.generateId();
-    this.image = options.image ?? 'blaxel/node:latest';
+    this.image = options.image ?? 'blaxel/ts-app:latest';
     this.memory = options.memory ?? 4096;
     this.timeout = options.timeout;
     this.env = options.env ?? {};
