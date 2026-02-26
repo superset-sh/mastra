@@ -17,7 +17,7 @@ import { LogLevel, noopLogger, ConsoleLogger } from '../logger';
 import type { IMastraLogger } from '../logger';
 import type { MCPServerBase } from '../mcp';
 import type { MastraMemory } from '../memory';
-import type { ObservabilityEntrypoint } from '../observability';
+import type { ObservabilityEntrypoint, ObservabilityInstance } from '../observability';
 import { NoOpObservability } from '../observability';
 import type { Processor } from '../processors';
 import type { MastraServerBase } from '../server/base';
@@ -505,6 +505,31 @@ export class Mastra<
     this.#observability = observability;
     this.#observability.setLogger({ logger: this.#logger });
     this.#observability.setMastraContext({ mastra: this });
+  }
+
+  /**
+   * Registers an observability instance, ensuring a real observability entrypoint exists.
+   *
+   * If the current observability is a no-op (user didn't configure any), this method
+   * first replaces it with the provided entrypoint, then registers the instance.
+   * If a real observability entrypoint already exists, it simply registers the instance
+   * into the existing one.
+   *
+   * @param name - The name to register the instance under
+   * @param instance - The observability instance to register
+   * @param entrypoint - A real ObservabilityEntrypoint to use if the current one is a no-op
+   * @param isDefault - Whether this instance should be the default
+   */
+  public registerObservabilityInstance(
+    name: string,
+    instance: ObservabilityInstance,
+    entrypoint: ObservabilityEntrypoint,
+    isDefault = false,
+  ): void {
+    if (this.#observability instanceof NoOpObservability) {
+      this.setObservability(entrypoint);
+    }
+    this.#observability.registerInstance(name, instance, isDefault);
   }
 
   /**
