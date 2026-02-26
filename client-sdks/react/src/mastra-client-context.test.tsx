@@ -30,6 +30,17 @@ describe('isLocalUrl', () => {
     expect(isLocalUrl('http://[::1]')).toBe(true);
   });
 
+  it('should return true for .local hostnames', () => {
+    expect(isLocalUrl('http://mastra.local:4000')).toBe(true);
+    expect(isLocalUrl('http://mastra.local')).toBe(true);
+    expect(isLocalUrl('https://my-app.local:3000')).toBe(true);
+  });
+
+  it('should return true for .localhost hostnames', () => {
+    expect(isLocalUrl('http://mastra.localhost:4000')).toBe(true);
+    expect(isLocalUrl('http://dev.localhost')).toBe(true);
+  });
+
   it('should return false for remote URLs', () => {
     expect(isLocalUrl('https://api.example.com')).toBe(false);
     expect(isLocalUrl('https://my-app.vercel.app')).toBe(false);

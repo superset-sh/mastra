@@ -25,7 +25,14 @@ export const isLocalUrl = (url?: string): boolean => {
   if (!url) return true;
   try {
     const { hostname } = new URL(url);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.localhost')
+    );
   } catch {
     return false;
   }
