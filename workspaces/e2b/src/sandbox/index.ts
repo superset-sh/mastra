@@ -153,7 +153,6 @@ export class E2BSandbox extends MastraSandbox {
   private _sandbox: Sandbox | null = null;
   private _createdAt: Date | null = null;
   private _isRetrying = false;
-  private _workingDir: string | null = null;
   private readonly timeout: number;
   private readonly templateSpec?: TemplateSpec;
   private readonly env: Record<string, string>;
@@ -252,9 +251,6 @@ export class E2BSandbox extends MastraSandbox {
       this._createdAt = new Date();
       this.logger.debug(`${LOG_PREFIX} Reconnected to existing sandbox for: ${this.id}`);
 
-      // Detect the actual working directory
-      await this.detectWorkingDir();
-
       // Clean up stale mounts from previous config
       // (processPending is called by base class after start completes)
       const expectedPaths = Array.from(this.mounts.entries.keys());
@@ -311,8 +307,6 @@ export class E2BSandbox extends MastraSandbox {
     this.logger.debug(`${LOG_PREFIX} Created sandbox ${this._sandbox.sandboxId} for logical ID: ${this.id}`);
     this._createdAt = new Date();
 
-    // Detect the actual working directory (don't hardcode — custom templates may differ)
-    await this.detectWorkingDir();
     // Note: processPending is called by base class after start completes
   }
 
@@ -409,29 +403,9 @@ export class E2BSandbox extends MastraSandbox {
   }
 
   private _getDefaultInstructions(): string {
-    const dirInfo = this._workingDir ? ` with ${this._workingDir} as working directory` : '';
     const mountCount = this.mounts.entries.size;
     const mountInfo = mountCount > 0 ? ` ${mountCount} filesystem(s) mounted via FUSE.` : '';
-    return `Cloud sandbox${dirInfo}.${mountInfo}`;
-  }
-
-  /**
-   * Detect the actual working directory inside the sandbox via `pwd`.
-   * Stores the result for use in `getInstructions()`.
-   */
-  private async detectWorkingDir(): Promise<void> {
-    if (!this._sandbox) return;
-    this._workingDir = null;
-    try {
-      const result = await this._sandbox.commands.run('pwd');
-      const dir = result.stdout.trim();
-      if (dir) {
-        this._workingDir = dir;
-        this.logger.debug(`${LOG_PREFIX} Detected working directory: ${dir}`);
-      }
-    } catch {
-      this.logger.debug(`${LOG_PREFIX} Could not detect working directory, will omit from instructions`);
-    }
+    return `Cloud sandbox.${mountInfo}`;
   }
 
   // ---------------------------------------------------------------------------

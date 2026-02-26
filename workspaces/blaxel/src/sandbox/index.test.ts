@@ -328,48 +328,6 @@ describe('BlaxelSandbox', () => {
       expect(instructions).toContain('sandbox');
     });
 
-    it('includes dynamically detected working directory', async () => {
-      // Mock pwd to return a specific directory
-      mockSandbox.process.exec.mockImplementation((req: any) => {
-        const cmd = req.command || '';
-        if (cmd === 'pwd') {
-          return Promise.resolve({
-            exitCode: 0,
-            stdout: '/blaxel\n',
-            stderr: '',
-            pid: '1234',
-            status: 'completed',
-            command: cmd,
-            logs: '',
-            name: '',
-            startedAt: '',
-            completedAt: '',
-            workingDir: '',
-          });
-        }
-        return Promise.resolve({
-          exitCode: 0,
-          stdout: '',
-          stderr: '',
-          pid: '1234',
-          status: 'completed',
-          command: cmd,
-          logs: '',
-          name: '',
-          startedAt: '',
-          completedAt: '',
-          workingDir: '',
-        });
-      });
-
-      const sandbox = new BlaxelSandbox();
-      await sandbox._start();
-
-      const instructions = sandbox.getInstructions();
-
-      expect(instructions).toContain('/blaxel');
-      expect(instructions).not.toContain('/home/user');
-    });
   });
 
   describe('isReady()', () => {
