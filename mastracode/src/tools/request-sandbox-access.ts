@@ -6,6 +6,7 @@
 import * as path from 'node:path';
 import type { HarnessRequestContext } from '@mastra/core/harness';
 import { createTool } from '@mastra/core/tools';
+import { LocalFilesystem } from '@mastra/core/workspace';
 import { z } from 'zod';
 import { isPathAllowed, getAllowedPathsFromContext } from './utils.js';
 
@@ -63,9 +64,17 @@ export const requestSandboxAccessTool = createTool({
         // Add to allowed paths
         const currentAllowed = (harnessCtx.getState?.()?.sandboxAllowedPaths as string[] | undefined) ?? [];
         if (!currentAllowed.includes(absolutePath)) {
+          const newPaths = [...currentAllowed, absolutePath];
           harnessCtx.setState?.({
-            sandboxAllowedPaths: [...currentAllowed, absolutePath],
+            sandboxAllowedPaths: newPaths,
           });
+
+          // Immediately update the workspace filesystem so list_files/read_file
+          // work within the same turn (setState only takes effect next turn).
+          const workspace = harnessCtx.workspace;
+          if (workspace?.filesystem instanceof LocalFilesystem) {
+            workspace.filesystem.setAllowedPaths(prev => [...prev, path.resolve(absolutePath)]);
+          }
         }
         return {
           content: `Access granted: "${absolutePath}" has been added to allowed paths. You can now access files in this directory.`,
