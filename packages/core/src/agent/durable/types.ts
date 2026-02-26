@@ -15,6 +15,7 @@ import type { RequestContext } from '../../request-context';
 import type { ChunkType } from '../../stream/types';
 import type { CoreTool } from '../../tools/types';
 import type { Workspace } from '../../workspace';
+import type { MessageList } from '../message-list';
 import type { SerializedMessageListState } from '../message-list/state';
 import type { SaveQueueManager } from '../save-queue';
 
@@ -379,6 +380,8 @@ export interface RunRegistryEntry {
   requestContext?: RequestContext;
   /** Cleanup function to call when run completes */
   cleanup?: () => void;
+  /** MessageList for tracking conversation messages (non-serializable) */
+  messageList?: MessageList;
 }
 
 /**

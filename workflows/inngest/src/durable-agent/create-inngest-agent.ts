@@ -690,12 +690,11 @@ export function createInngestAgent<TOutput = undefined>(options: CreateInngestAg
     __setMastra(mastraInstance: Mastra) {
       mastra = mastraInstance;
 
-      // Wire mastra.pubsub as the inner pubsub if user didn't provide a custom one.
-      // This must happen before CachingPubSub initialization so the
-      // OBSERVE_AGENT_STREAM_ROUTE handler can subscribe to the same instance.
-      if (!customPubsub && !_cachingPubsub) {
-        innerPubsub = mastraInstance.pubsub;
-      }
+      // NOTE: Unlike core DurableAgent, we do NOT replace innerPubsub with mastra.pubsub.
+      // InngestAgent uses InngestPubSub which handles both publishing (inside Inngest
+      // functions via the realtime publishFn) and subscribing (via @inngest/realtime).
+      // Replacing it with mastra's EventEmitterPubSub would break streaming because
+      // the subscriber would be on a different transport than the publisher.
     },
   };
 

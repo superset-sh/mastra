@@ -381,7 +381,7 @@ export function createDurableToolCallStep() {
           ...typedInput,
           result,
         };
-      } catch {
+      } catch (error) {
         const toolError = serializeError(error);
 
         // Emit tool-error chunk
