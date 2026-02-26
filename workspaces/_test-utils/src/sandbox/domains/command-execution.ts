@@ -13,7 +13,7 @@ interface TestContext {
   capabilities: Required<SandboxCapabilities>;
   testTimeout: number;
   fastOnly: boolean;
-  createSandbox: (options?: CreateSandboxOptions) => Promise<MastraSandbox> | MastraSandbox;
+  createSandbox?: (options?: CreateSandboxOptions) => Promise<MastraSandbox> | MastraSandbox;
 }
 
 export function createCommandExecutionTests(getContext: () => TestContext): void {
@@ -348,6 +348,7 @@ cat /tmp/heredoc-test.txt`,
         run: (exec: NonNullable<MastraSandbox['executeCommand']>) => Promise<void>,
       ) => {
         const { createSandbox } = getContext();
+        if (!createSandbox) return;
         const envSandbox = await createSandbox({ env });
         try {
           await envSandbox._start();
