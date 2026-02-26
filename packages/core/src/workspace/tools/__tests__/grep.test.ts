@@ -400,10 +400,10 @@ describe('workspace_grep', () => {
     expect(result).toContain('(truncated at 1000)');
   });
 
-  it('should apply hard character limit to output', async () => {
-    // Create a file with long lines that will exceed MAX_OUTPUT_CHARS (30k)
-    // 200 lines * 200 chars each = 40k+ chars
-    const lines = Array.from({ length: 200 }, (_, i) => `match_${i}_${'x'.repeat(200)}`).join('\n');
+  it('should apply token limit to output', async () => {
+    // Create a file with many lines that will exceed default token limit (~3k tokens)
+    // Each line has ~5 words => ~7 tokens. 1000 lines => ~7000 tokens (well over 3k)
+    const lines = Array.from({ length: 1000 }, (_, i) => `match_${i} some extra words here`).join('\n');
     await fs.writeFile(path.join(tempDir, 'big.ts'), lines);
     const workspace = new Workspace({
       filesystem: new LocalFilesystem({ basePath: tempDir }),
@@ -415,6 +415,5 @@ describe('workspace_grep', () => {
     })) as string;
 
     expect(result).toContain('[output truncated');
-    expect(result.length).toBeLessThanOrEqual(31000); // 30k + truncation notice
   });
 });

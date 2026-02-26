@@ -6,7 +6,7 @@ Sandbox tool results sent to the model now omit ANSI color codes while streamed 
 
 Commands ending with `| tail -N` now stream output live and still return only the last N lines in the final result, preventing long commands from blocking streaming.
 
-All workspace tools that return potentially large output (`grep`, `read_file`, `list_files`) now enforce a hard 30k character limit to prevent oversized results from overwhelming the model context window.
+Workspace tools that return potentially large output (`grep`, `read_file`, `list_files`, `execute_command`) now enforce a token-based output limit (~3k tokens by default, configurable via `maxOutputTokens` in tool config). Token estimation uses a `words * 1.3` heuristic. This replaces the previous character-based limit with a more model-friendly token budget.
 
 ```ts
 // ANSI stripping (automatic via toModelOutput on sandbox tools):
@@ -17,4 +17,13 @@ All workspace tools that return potentially large output (`grep`, `read_file`, `
 // Agent calls: execute_command({ command: "npm test | tail -20" })
 // What actually runs: "npm test" (all output streams live to user)
 // What the model gets: last 20 lines only
+
+// Configurable token limit:
+const workspace = new Workspace({
+  tools: {
+    mastra_workspace_execute_command: {
+      maxOutputTokens: 5000, // override default 3k
+    },
+  },
+});
 ```

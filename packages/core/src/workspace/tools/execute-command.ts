@@ -74,6 +74,8 @@ async function executeCommand(input: Record<string, any>, context: any) {
 
   await emitWorkspaceMetadata(context, WORKSPACE_TOOLS.SANDBOX.EXECUTE_COMMAND);
   const toolCallId = context?.agent?.toolCallId;
+  const tokenLimit = context?.maxOutputTokens;
+  const tokenFrom = 'sandwich' as const;
 
   // Background mode: spawn via process manager and return immediately
   if (background) {
@@ -128,12 +130,15 @@ async function executeCommand(input: Record<string, any>, context: any) {
     });
 
     if (!result.success) {
-      const parts = [truncateOutput(result.stdout, tail), truncateOutput(result.stderr, tail)].filter(Boolean);
+      const parts = [
+        truncateOutput(result.stdout, tail, tokenLimit, tokenFrom),
+        truncateOutput(result.stderr, tail, tokenLimit, tokenFrom),
+      ].filter(Boolean);
       parts.push(`Exit code: ${result.exitCode}`);
       return parts.join('\n');
     }
 
-    return truncateOutput(result.stdout, tail) || '(no output)';
+    return truncateOutput(result.stdout, tail, tokenLimit, tokenFrom) || '(no output)';
   } catch (error) {
     await context?.writer?.custom({
       type: 'data-sandbox-exit',
@@ -144,7 +149,10 @@ async function executeCommand(input: Record<string, any>, context: any) {
         toolCallId,
       },
     });
-    const parts = [truncateOutput(stdout, tail), truncateOutput(stderr, tail)].filter(Boolean);
+    const parts = [
+      truncateOutput(stdout, tail, tokenLimit, tokenFrom),
+      truncateOutput(stderr, tail, tokenLimit, tokenFrom),
+    ].filter(Boolean);
     const errorMessage = error instanceof Error ? error.message : String(error);
     parts.push(`Error: ${errorMessage}`);
     return parts.join('\n');

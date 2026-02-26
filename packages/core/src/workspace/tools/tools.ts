@@ -40,10 +40,11 @@ import { writeFileTool } from './write-file';
 export function resolveToolConfig(
   toolsConfig: WorkspaceToolsConfig | undefined,
   toolName: WorkspaceToolName,
-): { enabled: boolean; requireApproval: boolean; requireReadBeforeWrite?: boolean } {
+): { enabled: boolean; requireApproval: boolean; requireReadBeforeWrite?: boolean; maxOutputTokens?: number } {
   let enabled = true;
   let requireApproval = false;
   let requireReadBeforeWrite: boolean | undefined;
+  let maxOutputTokens: number | undefined;
 
   if (toolsConfig) {
     if (toolsConfig.enabled !== undefined) {
@@ -64,10 +65,13 @@ export function resolveToolConfig(
       if (perToolConfig.requireReadBeforeWrite !== undefined) {
         requireReadBeforeWrite = perToolConfig.requireReadBeforeWrite;
       }
+      if (perToolConfig.maxOutputTokens !== undefined) {
+        maxOutputTokens = perToolConfig.maxOutputTokens;
+      }
     }
   }
 
-  return { enabled, requireApproval, requireReadBeforeWrite };
+  return { enabled, requireApproval, requireReadBeforeWrite, maxOutputTokens };
 }
 
 // ---------------------------------------------------------------------------
@@ -77,12 +81,20 @@ export function resolveToolConfig(
 /**
  * Clone a standalone tool with config overrides and inject workspace into context.
  */
-function wrapTool(tool: any, workspace: Workspace, config: { requireApproval: boolean }): any {
+function wrapTool(
+  tool: any,
+  workspace: Workspace,
+  config: { requireApproval: boolean; maxOutputTokens?: number },
+): any {
   return {
     ...tool,
     requireApproval: config.requireApproval,
     execute: async (input: any, context: any = {}) => {
-      const enrichedContext = { ...context, workspace: context?.workspace ?? workspace };
+      const enrichedContext = {
+        ...context,
+        workspace: context?.workspace ?? workspace,
+        ...(config.maxOutputTokens !== undefined && { maxOutputTokens: config.maxOutputTokens }),
+      };
       return tool.execute(input, enrichedContext);
     },
   };
@@ -98,14 +110,18 @@ function wrapWithReadTracker(
   tool: any,
   workspace: Workspace,
   readTracker: FileReadTracker,
-  config: { requireApproval: boolean; requireReadBeforeWrite?: boolean },
+  config: { requireApproval: boolean; requireReadBeforeWrite?: boolean; maxOutputTokens?: number },
   mode: 'read' | 'write',
 ): any {
   return {
     ...tool,
     requireApproval: config.requireApproval,
     execute: async (input: any, context: any = {}) => {
-      const enrichedContext = { ...context, workspace: context?.workspace ?? workspace };
+      const enrichedContext = {
+        ...context,
+        workspace: context?.workspace ?? workspace,
+        ...(config.maxOutputTokens !== undefined && { maxOutputTokens: config.maxOutputTokens }),
+      };
 
       // Pre-execution: check read-before-write for write tools
       if (mode === 'write' && config.requireReadBeforeWrite) {

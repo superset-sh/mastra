@@ -3,7 +3,7 @@ import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { extractLinesWithLimit, formatWithLineNumbers } from '../line-utils';
 import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
-import { applyCharLimit } from './output-helpers';
+import { applyTokenLimit } from './output-helpers';
 
 export const readFileTool = createTool({
   id: WORKSPACE_TOOLS.FILESYSTEM.READ_FILE,
@@ -36,12 +36,22 @@ export const readFileTool = createTool({
 
     const isTextEncoding = !encoding || encoding === 'utf-8' || encoding === 'utf8';
 
+    const tokenLimit = context?.maxOutputTokens;
+
     if (!isTextEncoding) {
-      return applyCharLimit(`${stat.path} (${stat.size} bytes, ${effectiveEncoding})\n${fullContent}`);
+      return applyTokenLimit(
+        `${stat.path} (${stat.size} bytes, ${effectiveEncoding})\n${fullContent}`,
+        tokenLimit,
+        'end',
+      );
     }
 
     if (typeof fullContent !== 'string') {
-      return applyCharLimit(`${stat.path} (${stat.size} bytes, base64)\n${fullContent.toString('base64')}`);
+      return applyTokenLimit(
+        `${stat.path} (${stat.size} bytes, base64)\n${fullContent.toString('base64')}`,
+        tokenLimit,
+        'end',
+      );
     }
 
     const hasLineRange = offset !== undefined || limit !== undefined;
@@ -59,6 +69,6 @@ export const readFileTool = createTool({
       header = `${stat.path} (${stat.size} bytes)`;
     }
 
-    return applyCharLimit(`${header}\n${formattedContent}`);
+    return applyTokenLimit(`${header}\n${formattedContent}`, tokenLimit, 'end');
   },
 });

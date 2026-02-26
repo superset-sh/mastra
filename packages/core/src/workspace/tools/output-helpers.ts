@@ -1,8 +1,17 @@
 /** Default number of lines to return (tail). */
 export const DEFAULT_TAIL_LINES = 200;
 
-/** Hard character limit for tool output. Safety net on top of line-based tail. */
-export const MAX_OUTPUT_CHARS = 30_000;
+/** Default estimated token limit for tool output. Safety net on top of line-based tail. */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 3_000;
+
+/**
+ * Estimate the number of tokens in a string using a word-count heuristic.
+ * Uses `words * 1.3` which is a reasonable approximation for English text and code.
+ */
+export function estimateTokens(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.ceil(words * 1.3);
+}
 
 /**
  * Strip ANSI escape codes from text.
@@ -53,18 +62,118 @@ export function applyTail(output: string, tail: number | null | undefined): stri
 }
 
 /**
- * Hard character limit. Truncates from the start (keeps the end) and
- * prepends a notice so the agent knows data was lost.
+ * Token-based output limit. Truncates output to fit within an estimated token budget.
+ *
+ * @param output - The text to truncate
+ * @param limit - Maximum estimated tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
+ * @param from - Which end to truncate from:
+ *   - `'start'` (default): Remove lines from the start, keep the end
+ *   - `'end'`: Remove lines from the end, keep the start
  */
-export function applyCharLimit(output: string, limit: number = MAX_OUTPUT_CHARS): string {
-  if (!output || output.length <= limit) return output;
-  const truncated = output.slice(-limit);
-  return `[output truncated: showing last ${limit} of ${output.length} characters]\n${truncated}`;
+export function applyTokenLimit(
+  output: string,
+  limit: number = DEFAULT_MAX_OUTPUT_TOKENS,
+  from: 'start' | 'end' = 'start',
+): string {
+  if (!output) return output;
+  const tokens = estimateTokens(output);
+  if (tokens <= limit) return output;
+
+  const trailingNewline = output.endsWith('\n');
+  const lines = (trailingNewline ? output.slice(0, -1) : output).split('\n');
+
+  const kept: string[] = [];
+  let keptTokens = 0;
+
+  if (from === 'start') {
+    // Keep the end — iterate backwards
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const lineTokens = estimateTokens(lines[i]!);
+      if (keptTokens + lineTokens > limit && kept.length > 0) break;
+      kept.unshift(lines[i]!);
+      keptTokens += lineTokens;
+    }
+  } else {
+    // Keep the start — iterate forwards
+    for (let i = 0; i < lines.length; i++) {
+      const lineTokens = estimateTokens(lines[i]!);
+      if (keptTokens + lineTokens > limit && kept.length > 0) break;
+      kept.push(lines[i]!);
+      keptTokens += lineTokens;
+    }
+  }
+
+  if (kept.length >= lines.length) return output; // nothing to truncate
+  const body = kept.join('\n') + (trailingNewline && from === 'start' ? '\n' : '');
+  const position = from === 'start' ? 'last' : 'first';
+  return from === 'start'
+    ? `[output truncated: showing ${position} ~${keptTokens} of ~${tokens} estimated tokens]\n${body}`
+    : `${body}\n[output truncated: showing ${position} ~${keptTokens} of ~${tokens} estimated tokens]`;
 }
 
 /**
- * Apply both tail (line-based) and char limit (safety net) to output.
+ * Head+tail sandwich truncation. Keeps lines from both the start and end
+ * of the output, with a truncation notice in the middle.
+ *
+ * @param output - The text to truncate
+ * @param limit - Maximum estimated tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
+ * @param headRatio - Fraction of the token budget to allocate to the head (default: 0.1 = 10%)
  */
-export function truncateOutput(output: string, tail?: number | null, charLimit?: number): string {
-  return applyCharLimit(applyTail(output, tail), charLimit);
+export function applyTokenLimitSandwich(
+  output: string,
+  limit: number = DEFAULT_MAX_OUTPUT_TOKENS,
+  headRatio: number = 0.1,
+): string {
+  if (!output) return output;
+  const tokens = estimateTokens(output);
+  if (tokens <= limit) return output;
+
+  const trailingNewline = output.endsWith('\n');
+  const lines = (trailingNewline ? output.slice(0, -1) : output).split('\n');
+
+  const headBudget = Math.floor(limit * headRatio);
+  const tailBudget = limit - headBudget;
+
+  // Collect head lines (from the start)
+  const headLines: string[] = [];
+  let headTokens = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineTokens = estimateTokens(lines[i]!);
+    if (headTokens + lineTokens > headBudget && headLines.length > 0) break;
+    headLines.push(lines[i]!);
+    headTokens += lineTokens;
+  }
+
+  // Collect tail lines (from the end, not overlapping with head)
+  const tailLines: string[] = [];
+  let tailTokens = 0;
+  for (let i = lines.length - 1; i >= headLines.length; i--) {
+    const lineTokens = estimateTokens(lines[i]!);
+    if (tailTokens + lineTokens > tailBudget && tailLines.length > 0) break;
+    tailLines.unshift(lines[i]!);
+    tailTokens += lineTokens;
+  }
+
+  if (headLines.length + tailLines.length >= lines.length) return output;
+
+  const omitted = lines.length - headLines.length - tailLines.length;
+  const head = headLines.join('\n');
+  const tail = tailLines.join('\n') + (trailingNewline ? '\n' : '');
+  return `${head}\n[...${omitted} lines truncated — showing first ~${headTokens} + last ~${tailTokens} of ~${tokens} estimated tokens...]\n${tail}`;
+}
+
+/**
+ * Apply both tail (line-based) and token limit (safety net) to output.
+ */
+export function truncateOutput(
+  output: string,
+  tail?: number | null,
+  tokenLimit?: number,
+  tokenFrom?: 'start' | 'end' | 'sandwich',
+): string {
+  const tailed = applyTail(output, tail);
+  if (tokenFrom === 'sandwich') {
+    return applyTokenLimitSandwich(tailed, tokenLimit);
+  }
+  return applyTokenLimit(tailed, tokenLimit, tokenFrom);
 }

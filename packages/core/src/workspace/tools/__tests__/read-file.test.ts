@@ -78,9 +78,10 @@ describe('workspace_read_file', () => {
     expect(result).toContain('4 bytes');
   });
 
-  it('should apply hard character limit to large files', async () => {
-    // Create a file larger than MAX_OUTPUT_CHARS (30k)
-    const content = 'x'.repeat(40_000);
+  it('should apply token limit to large files', async () => {
+    // Create a file with many words that will exceed default token limit (~3k tokens)
+    const lines = Array.from({ length: 2000 }, (_, i) => `line ${i + 1} with some words here`);
+    const content = lines.join('\n');
     await fs.writeFile(path.join(tempDir, 'huge.txt'), content);
     const workspace = new Workspace({ filesystem: new LocalFilesystem({ basePath: tempDir }) });
     const tools = createWorkspaceTools(workspace);
@@ -88,6 +89,5 @@ describe('workspace_read_file', () => {
     const result = (await tools[WORKSPACE_TOOLS.FILESYSTEM.READ_FILE].execute({ path: '/huge.txt' })) as string;
 
     expect(result).toContain('[output truncated');
-    expect(result.length).toBeLessThanOrEqual(31000);
   });
 });

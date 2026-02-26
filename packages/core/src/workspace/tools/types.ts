@@ -29,6 +29,13 @@ export interface WorkspaceToolConfig {
    * Prevents accidental overwrites when the agent hasn't seen the current content.
    */
   requireReadBeforeWrite?: boolean;
+
+  /**
+   * Maximum estimated tokens for tool output (default: 3000).
+   * Output exceeding this limit is truncated from the start (keeping the end).
+   * Uses a word-count heuristic (words * 1.3) for token estimation.
+   */
+  maxOutputTokens?: number;
 }
 
 /**

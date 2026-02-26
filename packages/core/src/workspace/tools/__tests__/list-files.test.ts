@@ -208,14 +208,14 @@ describe('workspace_list_files', () => {
     expect(result).not.toContain('style.css');
   });
 
-  it('should apply hard character limit to large tree output', async () => {
-    // Create enough directories and files to exceed MAX_OUTPUT_CHARS (30k)
-    // Each entry contributes ~30-50 chars to tree output
+  it('should apply token limit to large tree output', async () => {
+    // Create enough directories and files to exceed default token limit (~3k tokens)
+    // Each entry contributes ~5-10 words to tree output
     for (let i = 0; i < 100; i++) {
       const dir = path.join(tempDir, `dir_${String(i).padStart(3, '0')}`);
       await fs.mkdir(dir);
       for (let j = 0; j < 10; j++) {
-        await fs.writeFile(path.join(dir, `file_${String(j).padStart(3, '0')}_${'x'.repeat(100)}.ts`), '');
+        await fs.writeFile(path.join(dir, `file_${String(j).padStart(3, '0')}_some_long_name.ts`), '');
       }
     }
     const workspace = new Workspace({ filesystem: new LocalFilesystem({ basePath: tempDir }) });
@@ -227,6 +227,5 @@ describe('workspace_list_files', () => {
     })) as string;
 
     expect(result).toContain('[output truncated');
-    expect(result.length).toBeLessThanOrEqual(31000);
   });
 });

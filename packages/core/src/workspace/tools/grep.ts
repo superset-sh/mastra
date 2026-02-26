@@ -5,7 +5,7 @@ import { isTextFile } from '../filesystem/fs-utils';
 import type { GlobMatcher } from '../glob';
 import { createGlobMatcher, extractGlobBase, isGlobPattern } from '../glob';
 import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
-import { applyCharLimit } from './output-helpers';
+import { applyTokenLimit } from './output-helpers';
 
 export const grepTool = createTool({
   id: WORKSPACE_TOOLS.FILESYSTEM.GREP,
@@ -212,6 +212,6 @@ Usage:
     }
     outputLines.push(parts.join(' '));
 
-    return applyCharLimit(outputLines.join('\n'));
+    return applyTokenLimit(outputLines.join('\n'), context?.maxOutputTokens, 'end');
   },
 });

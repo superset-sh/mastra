@@ -84,8 +84,9 @@ Use this after starting a background command with execute_command (background: t
 
     const running = handle.exitCode === undefined;
 
-    const stdout = truncateOutput(handle.stdout, tail);
-    const stderr = truncateOutput(handle.stderr, tail);
+    const tokenLimit = context?.maxOutputTokens;
+    const stdout = truncateOutput(handle.stdout, tail, tokenLimit, 'sandwich');
+    const stderr = truncateOutput(handle.stderr, tail, tokenLimit, 'sandwich');
 
     if (!stdout && !stderr) {
       return '(no output yet)';

@@ -6,11 +6,13 @@ import { getProcessOutputTool } from '../get-process-output';
 import { killProcessTool } from '../kill-process';
 import {
   applyTail,
-  applyCharLimit,
+  applyTokenLimit,
+  applyTokenLimitSandwich,
   truncateOutput,
   stripAnsi,
   sandboxToModelOutput,
-  MAX_OUTPUT_CHARS,
+  estimateTokens,
+  DEFAULT_MAX_OUTPUT_TOKENS,
   DEFAULT_TAIL_LINES,
 } from '../output-helpers';
 
@@ -600,48 +602,121 @@ describe('output-helpers', () => {
     });
   });
 
-  describe('applyCharLimit', () => {
+  describe('estimateTokens', () => {
+    it('returns 0 for empty string', () => {
+      expect(estimateTokens('')).toBe(0);
+    });
+
+    it('estimates tokens as words * 1.3', () => {
+      // "hello world" = 2 words => ceil(2 * 1.3) = 3
+      expect(estimateTokens('hello world')).toBe(3);
+    });
+
+    it('handles single word', () => {
+      expect(estimateTokens('hello')).toBe(2); // ceil(1 * 1.3) = 2
+    });
+
+    it('handles code-like text', () => {
+      const code = 'const x = 1;\nconst y = 2;\nreturn x + y;';
+      const words = code.split(/\s+/).filter(Boolean).length;
+      expect(estimateTokens(code)).toBe(Math.ceil(words * 1.3));
+    });
+  });
+
+  describe('applyTokenLimit', () => {
     it('returns output unchanged when under limit', () => {
-      expect(applyCharLimit('short', 100)).toBe('short');
-    });
-
-    it('returns output unchanged when exactly at limit', () => {
-      const output = 'x'.repeat(100);
-      expect(applyCharLimit(output, 100)).toBe(output);
-    });
-
-    it('truncates from the start and adds notice', () => {
-      const output = 'a'.repeat(50);
-      const result = applyCharLimit(output, 20);
-      expect(result).toContain('[output truncated: showing last 20 of 50 characters]');
-      expect(result).toContain('a'.repeat(20));
+      expect(applyTokenLimit('short text', 100)).toBe('short text');
     });
 
     it('returns empty string for empty input', () => {
-      expect(applyCharLimit('', 100)).toBe('');
+      expect(applyTokenLimit('', 100)).toBe('');
     });
 
-    it('uses MAX_OUTPUT_CHARS as default limit', () => {
-      const justUnder = 'x'.repeat(MAX_OUTPUT_CHARS);
-      expect(applyCharLimit(justUnder)).toBe(justUnder);
+    it('truncates from the start by default (keeps the end)', () => {
+      const lines = Array.from({ length: 100 }, (_, i) => `line number ${i + 1}`);
+      const output = lines.join('\n');
+      const result = applyTokenLimit(output, 20);
+      expect(result).toContain('[output truncated: showing last');
+      expect(result).toContain('estimated tokens]');
+      expect(result).toContain('line number 100');
+      expect(result).not.toContain('line number 1\n');
+    });
 
-      const justOver = 'x'.repeat(MAX_OUTPUT_CHARS + 1);
-      const result = applyCharLimit(justOver);
+    it('truncates from the end when from="end" (keeps the start)', () => {
+      const lines = Array.from({ length: 100 }, (_, i) => `line number ${i + 1}`);
+      const output = lines.join('\n');
+      const result = applyTokenLimit(output, 20, 'end');
+      expect(result).toContain('[output truncated: showing first');
+      expect(result).toContain('estimated tokens]');
+      expect(result).toContain('line number 1');
+      expect(result).not.toContain('line number 100');
+      // Notice should be at the end
+      expect(result.indexOf('[output truncated')).toBeGreaterThan(result.indexOf('line number 1'));
+    });
+
+    it('uses DEFAULT_MAX_OUTPUT_TOKENS as default limit', () => {
+      expect(applyTokenLimit('hello world')).toBe('hello world');
+
+      const hugeLines = Array.from({ length: 5000 }, (_, i) => `output line number ${i + 1}`);
+      const hugeOutput = hugeLines.join('\n');
+      const result = applyTokenLimit(hugeOutput);
       expect(result).toContain('[output truncated');
+      expect(estimateTokens(result)).toBeLessThanOrEqual(DEFAULT_MAX_OUTPUT_TOKENS + 100);
+    });
+
+    it('keeps at least one line even if it exceeds limit', () => {
+      const longLine = 'word '.repeat(500);
+      const result = applyTokenLimit(longLine, 10);
+      expect(result).toContain('word');
+    });
+  });
+
+  describe('applyTokenLimitSandwich', () => {
+    it('returns output unchanged when under limit', () => {
+      expect(applyTokenLimitSandwich('short text', 100)).toBe('short text');
+    });
+
+    it('returns empty string for empty input', () => {
+      expect(applyTokenLimitSandwich('', 100)).toBe('');
+    });
+
+    it('keeps lines from both start and end', () => {
+      const lines = Array.from({ length: 200 }, (_, i) => `line number ${i + 1}`);
+      const output = lines.join('\n');
+      const result = applyTokenLimitSandwich(output, 50, 0.2);
+      // Should contain early lines (head)
+      expect(result).toContain('line number 1');
+      // Should contain late lines (tail)
+      expect(result).toContain('line number 200');
+      // Should have truncation notice in the middle
+      expect(result).toContain('lines truncated');
+      // Middle lines should be gone
+      expect(result).not.toContain('line number 100\n');
+    });
+
+    it('head ratio controls how much of the budget goes to the start', () => {
+      const lines = Array.from({ length: 200 }, (_, i) => `line number ${i + 1}`);
+      const output = lines.join('\n');
+      // With headRatio 0.5, roughly equal head and tail
+      const result = applyTokenLimitSandwich(output, 50, 0.5);
+      expect(result).toContain('line number 1');
+      expect(result).toContain('line number 200');
+      expect(result).toContain('lines truncated');
     });
   });
 
   describe('truncateOutput', () => {
-    it('applies tail then char limit', () => {
-      const lines = Array.from({ length: 500 }, (_, i) => `line-${String(i).padStart(3, '0')}-${'x'.repeat(90)}`);
+    it('applies tail then token limit', () => {
+      // tail: 0 = no line limit, so only token limit applies
+      const lines = Array.from({ length: 5000 }, (_, i) => `line number ${String(i).padStart(4, '0')}`);
       const output = lines.join('\n');
 
       const result = truncateOutput(output, 0);
       expect(result).toContain('[output truncated');
-      expect(result.length).toBeLessThanOrEqual(MAX_OUTPUT_CHARS + 200);
+      expect(estimateTokens(result)).toBeLessThanOrEqual(DEFAULT_MAX_OUTPUT_TOKENS + 100);
     });
 
-    it('tail reduces output enough to skip char limit', () => {
+    it('tail reduces output enough to skip token limit', () => {
       const lines = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`);
       const output = lines.join('\n');
 
@@ -699,9 +774,11 @@ describe('sandboxToModelOutput', () => {
   });
 });
 
-describe('char limit integration', () => {
+describe('token limit integration', () => {
   it('execute_command truncates huge foreground output', async () => {
-    const hugeOutput = 'x'.repeat(50_000);
+    // Generate output with many words to exceed token limit
+    const hugeLines = Array.from({ length: 5000 }, (_, i) => `output line number ${i + 1}`);
+    const hugeOutput = hugeLines.join('\n');
     const sandbox = createMockSandbox({
       executeCommand: vi.fn().mockResolvedValue({
         success: true,
@@ -712,13 +789,18 @@ describe('char limit integration', () => {
       }),
     });
     const ctx = createContext(sandbox);
-    const result = await executeCommandTool.execute({ command: 'cat big.bin', tail: 0 }, ctx);
-    expect(result).toContain('[output truncated');
-    expect((result as string).length).toBeLessThanOrEqual(MAX_OUTPUT_CHARS + 200);
+    const result = await executeCommandTool.execute({ command: 'cat big.log', tail: 0 }, ctx);
+    // execute_command uses sandwich truncation — head + [...truncated...] + tail
+    expect(result).toContain('lines truncated');
+    // Should contain both start and end of output
+    expect(result).toContain('output line number 1');
+    expect(result).toContain('output line number 5000');
+    expect(estimateTokens(result as string)).toBeLessThanOrEqual(DEFAULT_MAX_OUTPUT_TOKENS + 100);
   });
 
   it('process_output truncates huge stdout', async () => {
-    const hugeStdout = 'y'.repeat(50_000);
+    const hugeLines = Array.from({ length: 5000 }, (_, i) => `log entry number ${i + 1}`);
+    const hugeStdout = hugeLines.join('\n');
     const handle = createMockHandle({
       pid: 30,
       stdout: hugeStdout,
@@ -732,6 +814,9 @@ describe('char limit integration', () => {
     });
     const ctx = createContext(sandbox);
     const result = await getProcessOutputTool.execute({ pid: 30, tail: 0 }, ctx);
-    expect(result).toContain('[output truncated');
+    // get_process_output uses sandwich truncation
+    expect(result).toContain('lines truncated');
+    expect(result).toContain('log entry number 1');
+    expect(result).toContain('log entry number 5000');
   });
 });

@@ -55,8 +55,9 @@ Use this to stop a long-running background process that was started with execute
     const parts: string[] = [`Process ${pid} has been killed.`];
 
     if (handle) {
-      const stdout = handle.stdout ? truncateOutput(handle.stdout, KILL_TAIL_LINES) : '';
-      const stderr = handle.stderr ? truncateOutput(handle.stderr, KILL_TAIL_LINES) : '';
+      const tokenLimit = context?.maxOutputTokens;
+      const stdout = handle.stdout ? truncateOutput(handle.stdout, KILL_TAIL_LINES, tokenLimit, 'sandwich') : '';
+      const stderr = handle.stderr ? truncateOutput(handle.stderr, KILL_TAIL_LINES, tokenLimit, 'sandwich') : '';
 
       if (stdout) {
         parts.push('', '--- stdout (last output) ---', stdout);
