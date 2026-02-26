@@ -12,7 +12,7 @@
  * Based on the Workspace Filesystem & Sandbox Test Plan.
  */
 
-import { createSandboxLifecycleTests } from '@internal/workspace-test-utils';
+import { createSandboxLifecycleTests, createMountOperationsTests } from '@internal/workspace-test-utils';
 import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
 
 import { DaytonaSandbox } from './index';
@@ -1012,10 +1012,10 @@ describe('DaytonaSandbox', () => {
       if (conformanceSandbox) await conformanceSandbox._destroy();
     });
 
-    createSandboxLifecycleTests(() => ({
+    const getContext = () => ({
       sandbox: conformanceSandbox as any,
       capabilities: {
-        supportsMounting: false,
+        supportsMounting: true,
         supportsReconnection: true,
         supportsConcurrency: true,
         supportsEnvVars: true,
@@ -1027,6 +1027,9 @@ describe('DaytonaSandbox', () => {
       testTimeout: 30000,
       fastOnly: true,
       createSandbox: () => new DaytonaSandbox(),
-    }));
+    });
+
+    createSandboxLifecycleTests(getContext);
+    createMountOperationsTests(getContext);
   });
 });
