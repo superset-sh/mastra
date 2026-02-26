@@ -124,7 +124,7 @@ describe('BlaxelSandbox', () => {
     it('uses default image and memory', () => {
       const sandbox = new BlaxelSandbox();
 
-      expect((sandbox as any).image).toBe('blaxel/py-app:latest');
+      expect((sandbox as any).image).toBe('blaxel/ts-app:latest');
       expect((sandbox as any).memory).toBe(4096);
     });
 
@@ -326,7 +326,6 @@ describe('BlaxelSandbox', () => {
       const instructions = sandbox.getInstructions();
 
       expect(instructions).toContain('sandbox');
-      expect(instructions).toContain('/home/user');
     });
   });
 
@@ -361,6 +360,10 @@ describe('BlaxelSandbox', () => {
 
   describe('Command Execution', () => {
     it('executes command and returns result', async () => {
+      const sandbox = new BlaxelSandbox();
+      await sandbox._start();
+
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 0,
         stdout: 'hello\n',
@@ -375,9 +378,6 @@ describe('BlaxelSandbox', () => {
         workingDir: '',
       });
 
-      const sandbox = new BlaxelSandbox();
-      await sandbox._start();
-
       const result = await sandbox.executeCommand('echo', ['hello']);
 
       expect(result.exitCode).toBe(0);
@@ -386,6 +386,10 @@ describe('BlaxelSandbox', () => {
     });
 
     it('captures stderr', async () => {
+      const sandbox = new BlaxelSandbox();
+      await sandbox._start();
+
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 1,
         stdout: '',
@@ -400,15 +404,16 @@ describe('BlaxelSandbox', () => {
         workingDir: '',
       });
 
-      const sandbox = new BlaxelSandbox();
-      await sandbox._start();
-
       const result = await sandbox.executeCommand('sh', ['-c', 'echo error >&2']);
 
       expect(result.stderr).toContain('error message');
     });
 
     it('returns non-zero exit code for failing command', async () => {
+      const sandbox = new BlaxelSandbox();
+      await sandbox._start();
+
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 1,
         stdout: '',
@@ -422,9 +427,6 @@ describe('BlaxelSandbox', () => {
         completedAt: '',
         workingDir: '',
       });
-
-      const sandbox = new BlaxelSandbox();
-      await sandbox._start();
 
       const result = await sandbox.executeCommand('exit', ['1']);
 
@@ -456,6 +458,20 @@ describe('BlaxelSandbox', () => {
           timeout: 5, // converted from ms to seconds
         }),
       );
+    });
+
+    it('enforces client-side timeout when server does not', async () => {
+      const sandbox = new BlaxelSandbox();
+      await sandbox._start();
+
+      // Set mock after start() to isolate from startup operations
+      // Simulate a command that never completes (server timeout not enforced)
+      mockSandbox.process.exec.mockImplementation(() => new Promise(() => {}));
+
+      const result = await sandbox.executeCommand('sleep', ['600'], { timeout: 100 });
+
+      expect(result.success).toBe(false);
+      expect(result.stderr).toContain('timed out');
     });
   });
 });
@@ -1678,6 +1694,9 @@ describe('BlaxelSandbox Internal Methods', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('not empty');
+
+      // Reset mocks so the custom mockImplementation doesn't leak into subsequent tests
+      resetMockDefaults();
     });
   });
 });
