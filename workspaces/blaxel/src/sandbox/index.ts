@@ -792,6 +792,7 @@ export class BlaxelSandbox extends MastraSandbox {
    */
   private async detectWorkingDir(): Promise<void> {
     if (!this._sandbox) return;
+    this._workingDir = null;
     try {
       const result = await runCommand(this._sandbox, 'pwd');
       const dir = result.stdout.trim();
@@ -906,7 +907,13 @@ export class BlaxelSandbox extends MastraSandbox {
       if (options.timeout) {
         let timer: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`Command timed out after ${options.timeout}ms`)), options.timeout!);
+          timer = setTimeout(() => {
+            // Best-effort cleanup: kill the process on the sandbox.
+            // The streaming exec path doesn't expose the process ID until it completes,
+            // so we attempt to kill by command string.
+            runCommand(sandbox, `pkill -f ${shellQuote(fullCommand)}`, { timeout: 5000 }).catch(() => {});
+            reject(new Error(`Command timed out after ${options.timeout}ms`));
+          }, options.timeout!);
         });
         try {
           result = await Promise.race([execPromise, timeoutPromise]);

@@ -421,6 +421,7 @@ export class E2BSandbox extends MastraSandbox {
    */
   private async detectWorkingDir(): Promise<void> {
     if (!this._sandbox) return;
+    this._workingDir = null;
     try {
       const result = await this._sandbox.commands.run('pwd');
       const dir = result.stdout.trim();

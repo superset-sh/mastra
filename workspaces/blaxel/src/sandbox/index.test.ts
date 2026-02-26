@@ -509,7 +509,7 @@ describe('BlaxelSandbox', () => {
 
       // Set mock after start() so pwd detection completes normally
       // Simulate a command that never completes (server timeout not enforced)
-      mockSandbox.process.exec.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 60_000)));
+      mockSandbox.process.exec.mockImplementation(() => new Promise(() => {}));
 
       const result = await sandbox.executeCommand('sleep', ['600'], { timeout: 100 });
 
