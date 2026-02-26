@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
-import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
+import { emitWorkspaceMetadata, getMaxOutputTokens, requireFilesystem } from './helpers';
 import { applyTokenLimit } from './output-helpers';
 import { formatAsTree } from './tree-formatter';
 
@@ -59,6 +59,6 @@ Examples:
       pattern: pattern || undefined,
     });
 
-    return await applyTokenLimit(`${result.tree}\n\n${result.summary}`, context?.maxOutputTokens, 'end');
+    return await applyTokenLimit(`${result.tree}\n\n${result.summary}`, getMaxOutputTokens(context), 'end');
   },
 });

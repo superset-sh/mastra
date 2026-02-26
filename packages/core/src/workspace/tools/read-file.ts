@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { extractLinesWithLimit, formatWithLineNumbers } from '../line-utils';
-import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
+import { emitWorkspaceMetadata, getMaxOutputTokens, requireFilesystem } from './helpers';
 import { applyTokenLimit } from './output-helpers';
 
 export const readFileTool = createTool({
@@ -36,7 +36,7 @@ export const readFileTool = createTool({
 
     const isTextEncoding = !encoding || encoding === 'utf-8' || encoding === 'utf8';
 
-    const tokenLimit = context?.maxOutputTokens;
+    const tokenLimit = getMaxOutputTokens(context);
 
     if (!isTextEncoding) {
       return await applyTokenLimit(

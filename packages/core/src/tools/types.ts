@@ -277,12 +277,6 @@ export interface ToolExecutionContext<
    */
   workspace?: Workspace;
 
-  /**
-   * Maximum estimated tokens for tool output. Injected by workspace tool wrappers
-   * from per-tool config (WorkspaceToolConfig.maxOutputTokens).
-   */
-  maxOutputTokens?: number;
-
   // Writer is created by Mastra for ALL contexts (agent, workflow, direct execution)
   // Wraps chunks with metadata (toolCallId, toolName, runId) before passing to underlying stream
   writer?: ToolStream;

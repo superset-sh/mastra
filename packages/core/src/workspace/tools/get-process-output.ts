@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { SandboxFeatureNotSupportedError } from '../errors';
-import { emitWorkspaceMetadata, requireSandbox } from './helpers';
+import { emitWorkspaceMetadata, getMaxOutputTokens, requireSandbox } from './helpers';
 import { DEFAULT_TAIL_LINES, truncateOutput, sandboxToModelOutput } from './output-helpers';
 
 export const getProcessOutputTool = createTool({
@@ -84,7 +84,7 @@ Use this after starting a background command with execute_command (background: t
 
     const running = handle.exitCode === undefined;
 
-    const tokenLimit = context?.maxOutputTokens;
+    const tokenLimit = getMaxOutputTokens(context);
     const stdout = await truncateOutput(handle.stdout, tail, tokenLimit, 'sandwich');
     const stderr = await truncateOutput(handle.stderr, tail, tokenLimit, 'sandwich');
 

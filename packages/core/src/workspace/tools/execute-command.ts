@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createTool } from '../../tools';
 import { WORKSPACE_TOOLS } from '../constants';
 import { SandboxFeatureNotSupportedError } from '../errors';
-import { emitWorkspaceMetadata, requireSandbox } from './helpers';
+import { emitWorkspaceMetadata, getMaxOutputTokens, requireSandbox } from './helpers';
 import { DEFAULT_TAIL_LINES, truncateOutput, sandboxToModelOutput } from './output-helpers';
 
 /**
@@ -74,7 +74,7 @@ async function executeCommand(input: Record<string, any>, context: any) {
 
   await emitWorkspaceMetadata(context, WORKSPACE_TOOLS.SANDBOX.EXECUTE_COMMAND);
   const toolCallId = context?.agent?.toolCallId;
-  const tokenLimit = context?.maxOutputTokens;
+  const tokenLimit = getMaxOutputTokens(context);
   const tokenFrom = 'sandwich' as const;
 
   // Background mode: spawn via process manager and return immediately

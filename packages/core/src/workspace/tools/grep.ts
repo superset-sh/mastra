@@ -4,7 +4,7 @@ import { WORKSPACE_TOOLS } from '../constants';
 import { isTextFile } from '../filesystem/fs-utils';
 import type { GlobMatcher } from '../glob';
 import { createGlobMatcher, extractGlobBase, isGlobPattern } from '../glob';
-import { emitWorkspaceMetadata, requireFilesystem } from './helpers';
+import { emitWorkspaceMetadata, getMaxOutputTokens, requireFilesystem } from './helpers';
 import { applyTokenLimit } from './output-helpers';
 
 export const grepTool = createTool({
@@ -212,6 +212,6 @@ Usage:
     const summary = summaryParts.join(' ');
     outputLines.unshift(summary, '---');
 
-    return await applyTokenLimit(outputLines.join('\n'), context?.maxOutputTokens, 'end');
+    return await applyTokenLimit(outputLines.join('\n'), getMaxOutputTokens(context), 'end');
   },
 });
