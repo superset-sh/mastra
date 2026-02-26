@@ -5736,9 +5736,13 @@ describe('Agent - network - abort functionality', () => {
       memory,
     });
 
+    let aborted = false;
+
     const anStream = await networkAgent.network('Do something', {
       abortSignal: abortController.signal,
-      onAbort: () => {},
+      onAbort: () => {
+        aborted = true;
+      },
       memory: {
         thread: 'abort-memory-test-thread',
         resource: 'abort-memory-test-resource',
@@ -5750,12 +5754,16 @@ describe('Agent - network - abort functionality', () => {
         // consume stream
       }
     } catch {
-      // Abort may throw
+      // Abort may throw — also mark aborted in case onAbort didn't fire
+      aborted = true;
     }
 
+    // Verify the abort path actually ran
+    expect(aborted).toBe(true);
+
     // When a sub-agent is aborted, its partial results should NOT be persisted to memory.
-    // The isNetwork messages saved after abort contain the sub-agent's partial messages,
-    // which pollute the thread with incomplete/useless data.
+    // Match any isNetwork payload that is not a bona fide final result:
+    // missing finalResult, finalResult.aborted === true, or partial === true.
     const networkMessages = savedMessages.filter(msg => {
       if (msg.role !== 'assistant') return false;
       const parts = msg.content?.parts ?? [];
@@ -5763,8 +5771,10 @@ describe('Agent - network - abort functionality', () => {
         if (part?.type === 'text') {
           try {
             const parsed = JSON.parse(part.text);
-            if (parsed.isNetwork && parsed.finalResult?.text === 'Aborted') {
-              return true;
+            if (parsed.isNetwork) {
+              const isAbortedOrPartial =
+                !parsed.finalResult || parsed.finalResult?.aborted === true || parsed.partial === true;
+              if (isAbortedOrPartial) return true;
             }
           } catch {
             // Not JSON
@@ -5774,7 +5784,7 @@ describe('Agent - network - abort functionality', () => {
       return false;
     });
 
-    // Aborted results should not be saved to memory
+    // Aborted/partial results should not be saved to memory
     expect(networkMessages).toHaveLength(0);
   });
 });
