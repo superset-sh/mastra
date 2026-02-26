@@ -275,9 +275,7 @@ describe('DaytonaSandbox', () => {
 
       // Env should NOT be passed at creation time — it's merged per-command
       // so that reconnecting to an existing sandbox picks up current env
-      expect(mockDaytona.create).toHaveBeenCalledWith(
-        expect.not.objectContaining({ envVars: expect.anything() }),
-      );
+      expect(mockDaytona.create).toHaveBeenCalledWith(expect.not.objectContaining({ envVars: expect.anything() }));
     });
 
     it('passes snapshot when provided', async () => {
