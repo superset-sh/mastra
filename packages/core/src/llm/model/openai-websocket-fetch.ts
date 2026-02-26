@@ -26,18 +26,28 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
 
   let ws: WebSocket | null = null;
   let connecting: Promise<WebSocket> | null = null;
+  let connectionKey: string | null = null;
   let busy = false;
 
   function getConnection(authorization: string, headers: Record<string, string>): Promise<WebSocket> {
-    if (ws?.readyState === WebSocket.OPEN) {
-      return Promise.resolve(ws);
-    }
-
-    if (connecting) return connecting;
-
     const normalizedHeaders = { ...normalizeHeaders(options?.headers), ...headers };
     delete normalizedHeaders['authorization'];
     delete normalizedHeaders['openai-beta'];
+    const nextConnectionKey = buildConnectionKey(authorization, normalizedHeaders);
+
+    if (ws?.readyState === WebSocket.OPEN && connectionKey === nextConnectionKey) {
+      return Promise.resolve(ws);
+    }
+
+    if (ws?.readyState === WebSocket.OPEN && connectionKey !== nextConnectionKey) {
+      ws.close();
+      ws = null;
+      connectionKey = null;
+    }
+
+    if (connecting && connectionKey === nextConnectionKey) return connecting;
+
+    connectionKey = nextConnectionKey;
 
     connecting = new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, {
@@ -57,12 +67,14 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
       socket.on('error', err => {
         if (connecting) {
           connecting = null;
+          connectionKey = null;
           reject(err);
         }
       });
 
       socket.on('close', () => {
         if (ws === socket) ws = null;
+        if (ws === null) connectionKey = null;
       });
     });
 
@@ -111,10 +123,17 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
 
     const responseStream = new ReadableStream<Uint8Array>({
       start(controller) {
-        function cleanup() {
+        function cleanup({ closeSocket = false }: { closeSocket?: boolean } = {}) {
           connection.off('message', onMessage);
           connection.off('error', onError);
           connection.off('close', onClose);
+
+          if (closeSocket && ws === connection) {
+            connection.close();
+            ws = null;
+            connectionKey = null;
+          }
+
           busy = false;
         }
 
@@ -155,14 +174,14 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
         const signal = init?.signal;
         if (signal) {
           if (signal.aborted) {
-            cleanup();
+            cleanup({ closeSocket: true });
             controller.error(signal.reason ?? new DOMException('Aborted', 'AbortError'));
             return;
           }
           signal.addEventListener(
             'abort',
             () => {
-              cleanup();
+              cleanup({ closeSocket: true });
               try {
                 controller.error(signal.reason ?? new DOMException('Aborted', 'AbortError'));
               } catch {
@@ -190,7 +209,16 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
         ws.close();
         ws = null;
       }
+      connectionKey = null;
+      connecting = null;
     },
+  });
+}
+
+function buildConnectionKey(authorization: string, headers: Record<string, string>): string {
+  return JSON.stringify({
+    authorization,
+    headers: Object.entries(headers).sort(([a], [b]) => a.localeCompare(b)),
   });
 }
 
