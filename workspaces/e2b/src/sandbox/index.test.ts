@@ -420,6 +420,24 @@ describe('E2BSandbox', () => {
       const instructions = sandbox.getInstructions();
 
       expect(instructions).toContain('sandbox');
+    });
+
+    it('includes dynamically detected working directory', async () => {
+      // Mock commands.run to return /home/user for pwd
+      mockSandbox.commands.run.mockImplementation((_cmd: string, opts?: any) => {
+        const stdout = _cmd === 'pwd' ? '/home/user\n' : '';
+        const result = { exitCode: 0, stdout, stderr: '' };
+        if (opts?.background) {
+          return Promise.resolve(createMockCommandHandle(result, opts));
+        }
+        return Promise.resolve(result);
+      });
+
+      const sandbox = new E2BSandbox();
+      await sandbox._start();
+
+      const instructions = sandbox.getInstructions();
+
       expect(instructions).toContain('/home/user');
     });
   });

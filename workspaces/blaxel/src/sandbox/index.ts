@@ -71,7 +71,7 @@ export interface BlaxelSandboxOptions extends MastraSandboxOptions {
   /**
    * Docker image to use for the sandbox.
    *
-   * @default 'blaxel/py-app:latest'
+   * @default 'blaxel/node:latest'
    */
   image?: string;
   /**
@@ -152,6 +152,7 @@ export class BlaxelSandbox extends MastraSandbox {
   private _sandbox: SandboxInstance | null = null;
   private _createdAt: Date | null = null;
   private _isRetrying = false;
+  private _workingDir: string | null = null;
 
   private readonly image: string;
   private readonly memory: number;
@@ -166,7 +167,7 @@ export class BlaxelSandbox extends MastraSandbox {
     super({ ...options, name: 'BlaxelSandbox' });
 
     this.id = options.id ?? this.generateId();
-    this.image = options.image ?? 'blaxel/py-app:latest';
+    this.image = options.image ?? 'blaxel/node:latest';
     this.memory = options.memory ?? 4096;
     this.timeout = options.timeout;
     this.env = options.env ?? {};
@@ -605,6 +606,9 @@ export class BlaxelSandbox extends MastraSandbox {
       this._createdAt = new Date();
       this.logger.debug(`${LOG_PREFIX} Reconnected to existing sandbox: ${sandboxName}`);
 
+      // Detect the actual working directory
+      await this.detectWorkingDir();
+
       // Clean up stale mounts from previous config
       // (processPending is called by base class after start completes)
       const expectedPaths = Array.from(this.mounts.entries.keys());
@@ -645,6 +649,9 @@ export class BlaxelSandbox extends MastraSandbox {
 
     this._createdAt = new Date();
     this.logger.debug(`${LOG_PREFIX} Sandbox ready: ${sandboxName} (status: ${this._sandbox.status})`);
+
+    // Detect the actual working directory (don't hardcode — custom images may differ)
+    await this.detectWorkingDir();
     // Note: processPending is called by base class after start completes
   }
 
@@ -773,9 +780,28 @@ export class BlaxelSandbox extends MastraSandbox {
    * Used by agents to understand the execution environment.
    */
   getInstructions(): string {
+    const dirInfo = this._workingDir ? ` with ${this._workingDir} as working directory` : '';
     const mountCount = this.mounts.entries.size;
     const mountInfo = mountCount > 0 ? ` ${mountCount} filesystem(s) mounted via FUSE.` : '';
-    return `Cloud sandbox with /home/user as working directory.${mountInfo}`;
+    return `Cloud sandbox${dirInfo}.${mountInfo}`;
+  }
+
+  /**
+   * Detect the actual working directory inside the sandbox via `pwd`.
+   * Stores the result for use in `getInstructions()`.
+   */
+  private async detectWorkingDir(): Promise<void> {
+    if (!this._sandbox) return;
+    try {
+      const result = await runCommand(this._sandbox, 'pwd');
+      const dir = result.stdout.trim();
+      if (dir) {
+        this._workingDir = dir;
+        this.logger.debug(`${LOG_PREFIX} Detected working directory: ${dir}`);
+      }
+    } catch {
+      this.logger.debug(`${LOG_PREFIX} Could not detect working directory, will omit from instructions`);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -856,7 +882,9 @@ export class BlaxelSandbox extends MastraSandbox {
         Object.entries(mergedEnv).filter((entry): entry is [string, string] => entry[1] !== undefined),
       );
 
-      const result = await sandbox.process.exec({
+      // Pass timeout to Blaxel API (server-side) AND enforce client-side via Promise.race
+      // as a safety net, since the Blaxel API timeout is not always enforced.
+      const execPromise = sandbox.process.exec({
         command: fullCommand,
         workingDir: options.cwd,
         env: envRecord,
@@ -869,6 +897,21 @@ export class BlaxelSandbox extends MastraSandbox {
             }
           : {}),
       });
+
+      let result;
+      if (options.timeout) {
+        let timer: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`Command timed out after ${options.timeout}ms`)), options.timeout!);
+        });
+        try {
+          result = await Promise.race([execPromise, timeoutPromise]);
+        } finally {
+          clearTimeout(timer!);
+        }
+      } else {
+        result = await execPromise;
+      }
 
       const executionTimeMs = Date.now() - startTime;
       const exitCode = result.exitCode ?? 0;
