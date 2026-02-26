@@ -16,7 +16,7 @@ import { HookManager } from './hooks/index.js';
 import { createMcpManager } from './mcp/index.js';
 import type { ProviderAccess } from './onboarding/packs.js';
 import { getAvailableModePacks, getAvailableOmPacks } from './onboarding/packs.js';
-import { loadSettings, resolveModelDefaults, resolveOmModel } from './onboarding/settings.js';
+import { loadSettings, resolveModelDefaults, resolveOmModel, saveSettings } from './onboarding/settings.js';
 import { getToolCategory } from './permissions.js';
 import { setAuthStorage } from './providers/claude-max.js';
 import { setAuthStorage as setOpenAIAuthStorage } from './providers/openai-codex.js';
@@ -266,6 +266,15 @@ export async function createMastraCode(config?: MastraCodeConfig) {
       return undefined;
     },
     modelUseCountProvider: () => loadSettings().modelUseCounts,
+    modelUseCountTracker: modelId => {
+      try {
+        const settings = loadSettings();
+        settings.modelUseCounts[modelId] = (settings.modelUseCounts[modelId] ?? 0) + 1;
+        saveSettings(settings);
+      } catch (error) {
+        console.error('Failed to persist model usage count', error);
+      }
+    },
     threadLock: {
       acquire: acquireThreadLock,
       release: releaseThreadLock,

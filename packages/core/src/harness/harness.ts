@@ -403,6 +403,12 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       await this.setThreadSetting({ key: `modeModelId_${targetModeId}`, value: modelId });
     }
 
+    try {
+      await Promise.resolve(this.config.modelUseCountTracker?.(modelId));
+    } catch (error) {
+      console.error('Failed to track model usage count', error);
+    }
+
     this.emit({ type: 'model_changed', modelId, scope, modeId: targetModeId } as HarnessEvent);
   }
 
