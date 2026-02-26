@@ -831,7 +831,8 @@ export class BlaxelSandbox extends MastraSandbox {
     return (
       errorStr.includes('terminated') ||
       errorStr.includes('sandbox was not found') ||
-      errorStr.includes('sandbox not found')
+      errorStr.includes('sandbox not found') ||
+      errorStr.includes('"not found"')
     );
   }
 
