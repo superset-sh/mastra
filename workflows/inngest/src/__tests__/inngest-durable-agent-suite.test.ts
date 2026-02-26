@@ -73,7 +73,9 @@ createDurableAgentTestSuite({
   },
 
   // Longer event propagation delay for Inngest
-  eventPropagationDelay: 2000,
+  // Inngest events go through: client -> Inngest API -> workflow execution -> realtime -> WebSocket -> subscriber
+  // This round-trip typically takes ~3.5-4s, so we need a generous delay
+  eventPropagationDelay: 6000,
 
   // Skip domains that don't apply to InngestAgent
   skip: {
