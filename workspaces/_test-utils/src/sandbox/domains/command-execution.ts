@@ -343,17 +343,29 @@ cat /tmp/heredoc-test.txt`,
     });
 
     describe('sandbox-level environment variables', () => {
+      const withEnvSandbox = async (
+        env: Record<string, string>,
+        run: (exec: NonNullable<MastraSandbox['executeCommand']>) => Promise<void>,
+      ) => {
+        const { createSandbox } = getContext();
+        const envSandbox = await createSandbox({ env });
+        try {
+          await envSandbox._start();
+          const exec = envSandbox.executeCommand?.bind(envSandbox);
+          if (!exec) throw new Error('sandbox.executeCommand must be defined');
+          await run(exec);
+        } finally {
+          await envSandbox._destroy();
+        }
+      };
+
       it(
         'per-command env overrides sandbox-level env',
         async () => {
-          const { capabilities, createSandbox } = getContext();
+          const { capabilities } = getContext();
           if (!capabilities.supportsEnvVars) return;
 
-          const envSandbox = await createSandbox({ env: { MY_VAR: 'initial' } });
-          try {
-            await envSandbox._start();
-            const exec = envSandbox.executeCommand!.bind(envSandbox);
-
+          await withEnvSandbox({ MY_VAR: 'initial' }, async exec => {
             // Check initial value from sandbox env
             const result1 = await exec('sh', ['-c', 'echo $MY_VAR']);
             expect(result1.stdout.trim()).toBe('initial');
@@ -367,9 +379,7 @@ cat /tmp/heredoc-test.txt`,
             // Original sandbox env still works for subsequent commands
             const result3 = await exec('sh', ['-c', 'echo $MY_VAR']);
             expect(result3.stdout.trim()).toBe('initial');
-          } finally {
-            await envSandbox._destroy();
-          }
+          });
         },
         getContext().testTimeout * 3,
       );
@@ -377,22 +387,16 @@ cat /tmp/heredoc-test.txt`,
       it(
         'per-command env merges with sandbox-level env',
         async () => {
-          const { capabilities, createSandbox } = getContext();
+          const { capabilities } = getContext();
           if (!capabilities.supportsEnvVars) return;
 
-          const envSandbox = await createSandbox({ env: { VAR_A: '1', VAR_B: '2' } });
-          try {
-            await envSandbox._start();
-            const exec = envSandbox.executeCommand!.bind(envSandbox);
-
+          await withEnvSandbox({ VAR_A: '1', VAR_B: '2' }, async exec => {
             // Per-command env adds VAR_C and overrides VAR_B
             const result = await exec('sh', ['-c', 'echo $VAR_A $VAR_B $VAR_C'], {
               env: { VAR_B: 'override', VAR_C: '3' },
             });
             expect(result.stdout.trim()).toBe('1 override 3');
-          } finally {
-            await envSandbox._destroy();
-          }
+          });
         },
         getContext().testTimeout * 3,
       );

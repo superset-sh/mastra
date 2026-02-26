@@ -2,4 +2,4 @@
 '@mastra/daytona': patch
 ---
 
-Removed working directory from sandbox instructions to avoid breaking prompt caching.
+Sandbox instructions no longer include a working directory path, keeping instructions stable across sessions.

@@ -363,7 +363,7 @@ describe('BlaxelSandbox', () => {
       const sandbox = new BlaxelSandbox();
       await sandbox._start();
 
-      // Set mock after start() so pwd detection doesn't consume it
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 0,
         stdout: 'hello\n',
@@ -389,7 +389,7 @@ describe('BlaxelSandbox', () => {
       const sandbox = new BlaxelSandbox();
       await sandbox._start();
 
-      // Set mock after start() so pwd detection doesn't consume it
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 1,
         stdout: '',
@@ -413,7 +413,7 @@ describe('BlaxelSandbox', () => {
       const sandbox = new BlaxelSandbox();
       await sandbox._start();
 
-      // Set mock after start() so pwd detection doesn't consume it
+      // Set mock after start() to isolate from startup operations
       mockSandbox.process.exec.mockResolvedValueOnce({
         exitCode: 1,
         stdout: '',
@@ -464,7 +464,7 @@ describe('BlaxelSandbox', () => {
       const sandbox = new BlaxelSandbox();
       await sandbox._start();
 
-      // Set mock after start() so pwd detection completes normally
+      // Set mock after start() to isolate from startup operations
       // Simulate a command that never completes (server timeout not enforced)
       mockSandbox.process.exec.mockImplementation(() => new Promise(() => {}));
 
