@@ -1629,196 +1629,94 @@ class MessageDebouncer {
 
 ---
 
-### Gap 3: Harness Event Transport (WebSocket / SSE Bridge)
+### Gap 3: Harness Routes in Mastra Server
 
-**What OpenClaw provides**: A persistent WebSocket server (default `ws://localhost:18789`) with a typed JSON protocol. Clients connect, authenticate, and receive real-time events. The protocol has three frame types: `event`, `request`, and `response`. Clients declare roles (`node` or `operator`) and scopes during handshake.
+**What OpenClaw provides**: A persistent WebSocket server (default `ws://localhost:18789`) with a typed JSON protocol. Clients connect, authenticate, and receive real-time events. The protocol has three frame types: `event`, `request`, and `response`.
 
-**What Mastra provides**: The Harness has a rich event system (35+ event types) with `subscribe(listener)`, but it's **in-process only**. There's no built-in way to stream Harness events over HTTP, SSE, or WebSocket to remote clients. Mastra's server has SSE support via Hono's `streamSSE` (used by MCP), but no bridge from Harness events to that transport.
+**What Mastra provides**: The Harness has a rich event system (35+ event types) with `subscribe(listener)`, but it's **in-process only**. However, Mastra already has a full server infrastructure (`@mastra/server`) that exposes agents, workflows, tools, memory, etc. via HTTP. The server uses `createRoute()` to define routes with Zod schemas, supports SSE streaming (`streamFormat: 'sse'`), and handles auth/context automatically. There is no reason to build a separate transport package — the Harness should be exposed through the existing server, the same way agents and workflows are.
 
-**Complexity**: Medium. The event taxonomy already exists — the work is building the transport bridge and client protocol.
+**Complexity**: Low-medium. The route infrastructure, streaming, auth, and request context are all solved. The work is adding Harness-specific route handlers following the existing `createRoute()` pattern.
 
-**Implementation approach**: Build a `HarnessTransport` that bridges Harness events to WebSocket and/or SSE:
+**Implementation approach**: Add `HARNESS_ROUTES` to `packages/server/src/server/` following the same pattern as `AGENTS_ROUTES`, `WORKFLOWS_ROUTES`, etc.
+
+The Mastra server already supports:
+- **SSE streaming** via `responseType: 'stream'` + `streamFormat: 'sse'` — used for agent streaming, MCP
+- **Auth middleware** — per-route `requiresAuth` flag
+- **Request context** — server-populated context propagated to handlers
+- **Zod validation** — `pathParamSchema`, `bodySchema`, `queryParamSchema` on every route
+- **Custom routes** — `registerApiRoute()` for app-specific endpoints
+
+What needs to be added:
 
 ```typescript
-import { Hono } from 'hono';
-import { createBunWebSocket } from 'hono/bun'; // or node adapter
-import { streamSSE } from 'hono/streaming';
-import type { Harness, HarnessEvent } from '@mastra/core/harness';
+// packages/server/src/server/handlers/harness.ts
+// Following the exact same pattern as agents.ts, workflows.ts, etc.
 
-// Frame types matching OpenClaw's protocol structure
-type ServerFrame =
-  | { type: 'event'; event: string; payload: unknown; seq: number }
-  | { type: 'res'; id: string; ok: true; payload: unknown }
-  | { type: 'res'; id: string; ok: false; error: string };
+import { createRoute } from '../server-adapter/routes/route-builder';
+import { z } from 'zod';
 
-type ClientFrame =
-  | { type: 'req'; id: string; method: string; params: unknown };
+const harnessIdPathParams = z.object({
+  harnessId: z.string(),
+});
 
-class HarnessTransport {
-  private harness: Harness;
-  private app: Hono;
-  private seq = 0;
+// SSE event stream — the key route
+export const HARNESS_EVENTS_ROUTE = createRoute({
+  method: 'GET',
+  path: '/harness/:harnessId/events',
+  responseType: 'stream',
+  streamFormat: 'sse',
+  pathParamSchema: harnessIdPathParams,
+  handler: async ({ harnessId, mastra }) => {
+    const harness = mastra.getHarness(harnessId); // needs to be added to Mastra class
+    // Return a ReadableStream that bridges harness.subscribe() to SSE
+    return {
+      fullStream: createHarnessEventStream(harness),
+    };
+  },
+});
 
-  constructor(harness: Harness) {
-    this.harness = harness;
-    this.app = new Hono();
-    this.setupRoutes();
-  }
+// Control commands
+export const HARNESS_SEND_ROUTE = createRoute({
+  method: 'POST',
+  path: '/harness/:harnessId/send',
+  responseType: 'json',
+  pathParamSchema: harnessIdPathParams,
+  bodySchema: z.object({
+    content: z.string(),
+    images: z.array(z.object({ data: z.string(), mimeType: z.string() })).optional(),
+  }),
+  handler: async ({ harnessId, mastra, content, images }) => {
+    const harness = mastra.getHarness(harnessId);
+    await harness.sendMessage({ content, images });
+    return { ok: true };
+  },
+});
 
-  private setupRoutes() {
-    // WebSocket endpoint — persistent bidirectional connection
-    const { upgradeWebSocket, websocket } = createBunWebSocket();
-
-    this.app.get('/ws', upgradeWebSocket((c) => ({
-      onOpen: (_event, ws) => {
-        const unsubscribe = this.harness.subscribe((event) => {
-          const frame: ServerFrame = {
-            type: 'event',
-            event: event.type,
-            payload: event.data,
-            seq: ++this.seq,
-          };
-          ws.send(JSON.stringify(frame));
-        });
-
-        // Store unsubscribe for cleanup
-        (ws as any).__unsubscribe = unsubscribe;
-      },
-
-      onMessage: async (event, ws) => {
-        const frame: ClientFrame = JSON.parse(event.data.toString());
-        try {
-          const result = await this.handleRequest(frame);
-          ws.send(JSON.stringify({
-            type: 'res', id: frame.id, ok: true, payload: result,
-          }));
-        } catch (err: any) {
-          ws.send(JSON.stringify({
-            type: 'res', id: frame.id, ok: false, error: err.message,
-          }));
-        }
-      },
-
-      onClose: (_event, ws) => {
-        (ws as any).__unsubscribe?.();
-      },
-    })));
-
-    // SSE endpoint — one-way event stream (simpler, works through proxies)
-    this.app.get('/events', async (c) => {
-      return streamSSE(c, async (stream) => {
-        const unsubscribe = this.harness.subscribe((event) => {
-          stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event.data),
-            id: String(++this.seq),
-          });
-        });
-
-        // Keep connection alive
-        const heartbeat = setInterval(() => {
-          stream.writeSSE({ event: 'heartbeat', data: '{}' });
-        }, 30_000);
-
-        stream.onAbort(() => {
-          unsubscribe();
-          clearInterval(heartbeat);
-        });
-
-        // Block until client disconnects
-        await new Promise(() => {});
-      });
-    });
-
-    // REST endpoints for Harness commands
-    this.app.post('/send', async (c) => {
-      const { content, images } = await c.req.json();
-      await this.harness.sendMessage({ content, images });
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/steer', async (c) => {
-      const { content } = await c.req.json();
-      await this.harness.steer({ content });
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/followup', async (c) => {
-      const { content } = await c.req.json();
-      await this.harness.followUp({ content });
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/abort', async (c) => {
-      await this.harness.abort();
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/approve', async (c) => {
-      const { decision } = await c.req.json();
-      await this.harness.respondToToolApproval({ decision });
-      return c.json({ ok: true });
-    });
-
-    this.app.get('/state', async (c) => {
-      return c.json(this.harness.getDisplayState());
-    });
-
-    this.app.get('/threads', async (c) => {
-      const threads = await this.harness.listThreads({});
-      return c.json(threads);
-    });
-
-    this.app.post('/threads', async (c) => {
-      const { title } = await c.req.json();
-      await this.harness.createThread({ title });
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/mode', async (c) => {
-      const { modeId } = await c.req.json();
-      await this.harness.switchMode({ modeId });
-      return c.json({ ok: true });
-    });
-
-    this.app.post('/model', async (c) => {
-      const { modelId, scope, modeId } = await c.req.json();
-      await this.harness.switchModel({ modelId, scope, modeId });
-      return c.json({ ok: true });
-    });
-  }
-
-  private async handleRequest(frame: ClientFrame): Promise<unknown> {
-    switch (frame.method) {
-      case 'send': return this.harness.sendMessage(frame.params as any);
-      case 'steer': return this.harness.steer(frame.params as any);
-      case 'followup': return this.harness.followUp(frame.params as any);
-      case 'abort': return this.harness.abort();
-      case 'approve': return this.harness.respondToToolApproval(frame.params as any);
-      case 'switch_mode': return this.harness.switchMode(frame.params as any);
-      case 'switch_model': return this.harness.switchModel(frame.params as any);
-      case 'list_threads': return this.harness.listThreads(frame.params as any);
-      case 'get_state': return this.harness.getDisplayState();
-      default: throw new Error(`Unknown method: ${frame.method}`);
-    }
-  }
-
-  getApp() { return this.app; }
-}
+// ... same pattern for steer, followUp, abort, approve, switchMode, etc.
 ```
 
-**What this provides vs. OpenClaw's protocol**:
+Then register them in the route index:
 
-| Feature | OpenClaw | HarnessTransport |
-|---|---|---|
-| Event streaming | WebSocket events | WebSocket + SSE |
-| Request/response | WebSocket frames | WebSocket + REST |
-| Client roles (node/operator) | Built-in | Not needed — Harness doesn't have the node concept |
-| Scoped permissions | Per-connection scopes | Delegate to Harness permission system |
-| TypeBox schema validation | Runtime validation | Zod validation on Harness state |
-| Device pairing | Handshake + pairing codes | Bearer token auth (simpler model) |
+```typescript
+// packages/server/src/server/server-adapter/routes/index.ts
+import { HARNESS_ROUTES } from './harness';
 
-**Effort estimate**: ~2-3 days for the core transport. The Harness already has the event taxonomy and the control API — this is purely plumbing.
+export const SERVER_ROUTES = [
+  ...AGENTS_ROUTES,
+  ...WORKFLOWS_ROUTES,
+  ...HARNESS_ROUTES,  // <— added
+  // ...
+];
+```
+
+This approach:
+- Uses the existing server infrastructure (auth, context, streaming, Zod validation)
+- Follows the exact same pattern as every other Mastra primitive's HTTP API
+- Gets SSE streaming for free (the server adapter already handles it)
+- Gets auth for free (the middleware already handles it)
+- Requires adding `getHarness()` / `addHarness()` to the `Mastra` class (following the pattern of `getAgent()` / `addAgent()`)
+
+**Effort estimate**: ~2-3 days. Most of the work is defining the route handlers and adding Harness registration to the Mastra class. The plumbing is already built.
 
 ---
 
@@ -2184,319 +2082,54 @@ During streaming, `message_update` fires on every token — potentially hundreds
 | `getTokenUsage()` | Token stats | For /cost display |
 | `loadOMProgress()` | Load OM state from storage | |
 
+##### Where This Lives
+
+Not a new package. Mastra already has a server (`@mastra/server`) that exposes agents, workflows, tools, and memory over HTTP using a `createRoute()` pattern with Zod schemas, SSE streaming, and auth middleware. The server has routes like `POST /api/agents/:agentId/stream` (SSE), `POST /api/agents/:agentId/generate` (JSON), etc. Harness routes should be added the same way — as `HARNESS_ROUTES` in `packages/server/src/server/server-adapter/routes/`, following the exact pattern of `AGENTS_ROUTES`.
+
+This requires two changes:
+1. **`Mastra` class** — Add `addHarness()` / `getHarness()` methods (following the `addAgent()` / `getAgent()` pattern) so the server can access registered Harness instances
+2. **`@mastra/server`** — Add `packages/server/src/server/handlers/harness.ts` with route definitions, plus a `HARNESS_ROUTES` array registered in `SERVER_ROUTES`
+
+The SSE event stream route is the interesting one — it needs to bridge `harness.subscribe()` into a `ReadableStream` that the server's existing SSE machinery can send to clients. The control and query routes are standard JSON request/response.
+
 ##### Design Decisions
 
-**1. DisplayState serialization**: `HarnessDisplayState` contains four `Map<string, T>` fields (`activeTools`, `toolInputBuffers`, `activeSubagents`, `modifiedFiles`). Maps don't serialize to JSON. The transport needs to convert these to `Record<string, T>` or `Array<[string, T]>` when sending over the wire. This is a one-time conversion on read — the internal representation stays as Maps.
+**1. DisplayState serialization**: `HarnessDisplayState` contains four `Map<string, T>` fields. These need conversion to `Record<string, T>` for JSON transport — a simple serialization helper.
 
-**2. Protocol choice**: Two viable approaches, potentially offered together:
+**2. Event stream**: SSE via the server's existing `streamFormat: 'sse'` support. This works through HTTP proxies, is easy to debug, and the server already handles it for agent streaming. WebSocket can be added later if bidirectional command-over-socket is needed, but SSE + REST covers the majority of use cases.
 
-- **WebSocket** — Bidirectional. Single connection handles both event streaming and control commands. Lower latency. Natural fit for request/response patterns (tool approvals, questions). Matches OpenClaw's protocol.
+**3. Reconnection**: Client connects to SSE, server sends initial snapshot as first event, then live events. `GET /api/harness/:id/display-state` provides a full snapshot for any-time recovery.
 
-- **SSE + REST** — Events stream over SSE, control via REST POST endpoints. Simpler to implement, works through HTTP proxies/CDNs, easier to debug. But two separate connections.
+##### What the Routes Look Like
 
-Recommendation: build WebSocket first (it's the more complete model), add SSE as a read-only fallback for environments where WebSocket isn't available.
+Following the exact same `createRoute()` pattern used for agents and workflows:
 
-**3. Event backpressure**: During streaming, `message_update` events fire per-token. Options:
-- **No batching** (WebSocket can handle it — each event is a small JSON frame)
-- **Configurable batching** (aggregate `message_update` events over a 16ms window for 60fps-equivalent updates)
-- **DisplayState polling** (clients poll `getDisplayState()` on an interval instead of processing raw events — simpler but higher latency)
-
-**4. Multi-client**: Should multiple clients connect simultaneously?
-
-- **Read-many, write-one**: All clients receive events, only one can issue control commands. Simple, avoids conflicts.
-- **Read-many, write-many**: All clients can issue commands. Last-write-wins. More flexible but needs conflict resolution for things like tool approvals.
-- **Role-based**: Like OpenClaw's `operator` vs `node` roles. Operators can control, nodes provide capabilities.
-
-Recommendation: start with read-many, write-many (simplest to implement — the Harness already handles single-operation-at-a-time internally via `isRunning()`).
-
-**5. Reconnection**: When a client disconnects and reconnects, it needs to catch up. `getDisplayState()` provides a full snapshot, and `listMessages()` provides history. The reconnection flow:
-1. Client connects
-2. Server sends `getDisplayState()` snapshot + `getState()` + `getSession()`
-3. Client renders from snapshot
-4. Subsequent events arrive in real-time
-
-**6. Where this lives**: Three options:
-
-| Location | Pros | Cons |
-|---|---|---|
-| `packages/core/src/harness/transport/` | Co-located with Harness, no new package | Adds server dependency to core |
-| `packages/server/src/harness/` | Natural home for HTTP/WS concerns | Couples to server adapter |
-| **`packages/harness-transport/`** (new package) | Clean separation, optional dependency | New package to maintain |
-
-Recommendation: **`packages/harness-transport/`** as a new package. It depends on `@mastra/core` (for Harness types) and `hono` (for HTTP/WS). Consumers install it only if they want remote access. This matches the pattern of `@mastra/memory`, `@mastra/mcp`, etc. — optional packages that compose with core.
-
-##### Implementation Sketch
-
-```typescript
-// packages/harness-transport/src/index.ts
-
-import type { Harness, HarnessEvent, HarnessDisplayState } from '@mastra/core/harness';
-
-interface HarnessTransportConfig {
-  harness: Harness;
-  auth?: {
-    validateToken: (token: string) => Promise<boolean>;
-  };
-  // Optional: batch message_update events for performance
-  batchUpdatesMs?: number;
-}
-
-class HarnessTransport {
-  private harness: Harness;
-  private clients = new Set<TransportClient>();
-
-  constructor(config: HarnessTransportConfig) {
-    this.harness = config.harness;
-
-    // Bridge: Harness events → all connected clients
-    this.harness.subscribe((event) => {
-      const serialized = this.serializeEvent(event);
-      for (const client of this.clients) {
-        client.send(serialized);
-      }
-    });
-  }
-
-  // Returns a Hono app that can be mounted on any server
-  getApp(): Hono {
-    const app = new Hono();
-
-    // WebSocket — bidirectional event stream + control
-    app.get('/ws', upgradeWebSocket((c) => ({
-      onOpen: (_, ws) => {
-        const client = new WebSocketClient(ws);
-        this.clients.add(client);
-        // Send initial state snapshot
-        client.send(this.serializeSnapshot());
-      },
-      onMessage: async (event, ws) => {
-        const frame = JSON.parse(event.data.toString());
-        const result = await this.handleCommand(frame);
-        ws.send(JSON.stringify({ type: 'res', id: frame.id, ...result }));
-      },
-      onClose: (_, ws) => {
-        this.removeClient(ws);
-      },
-    })));
-
-    // SSE — read-only event stream
-    app.get('/events', (c) => {
-      return streamSSE(c, async (stream) => {
-        // Send initial snapshot
-        stream.writeSSE({
-          event: 'snapshot',
-          data: JSON.stringify(this.getSnapshot()),
-        });
-
-        const client = new SSEClient(stream);
-        this.clients.add(client);
-
-        stream.onAbort(() => this.clients.delete(client));
-        await new Promise(() => {}); // Keep alive
-      });
-    });
-
-    // REST — control commands
-    app.post('/send', async (c) => {
-      const body = await c.req.json();
-      await this.harness.sendMessage(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/steer', async (c) => {
-      const body = await c.req.json();
-      await this.harness.steer(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/followup', async (c) => {
-      const body = await c.req.json();
-      await this.harness.followUp(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/abort', async (c) => {
-      this.harness.abort();
-      return c.json({ ok: true });
-    });
-
-    app.post('/approve', async (c) => {
-      const body = await c.req.json();
-      this.harness.respondToToolApproval(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/answer', async (c) => {
-      const body = await c.req.json();
-      this.harness.respondToQuestion(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/plan-response', async (c) => {
-      const body = await c.req.json();
-      await this.harness.respondToPlanApproval(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/mode', async (c) => {
-      const body = await c.req.json();
-      await this.harness.switchMode(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/model', async (c) => {
-      const body = await c.req.json();
-      await this.harness.switchModel(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/state', async (c) => {
-      const body = await c.req.json();
-      await this.harness.setState(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/threads', async (c) => {
-      const body = await c.req.json();
-      const thread = await this.harness.createThread(body);
-      return c.json(thread);
-    });
-
-    app.post('/threads/switch', async (c) => {
-      const body = await c.req.json();
-      await this.harness.switchThread(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/permissions/category', async (c) => {
-      const body = await c.req.json();
-      this.harness.setPermissionForCategory(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/permissions/tool', async (c) => {
-      const body = await c.req.json();
-      this.harness.setPermissionForTool(body);
-      return c.json({ ok: true });
-    });
-
-    app.post('/permissions/grant-category', async (c) => {
-      const body = await c.req.json();
-      this.harness.grantSessionCategory(body);
-      return c.json({ ok: true });
-    });
-
-    // Read-only queries
-    app.get('/state', (c) => c.json(this.harness.getState()));
-    app.get('/display-state', (c) => c.json(this.serializeDisplayState()));
-    app.get('/session', async (c) => c.json(await this.harness.getSession()));
-    app.get('/modes', (c) => c.json(this.harness.listModes().map(m => ({
-      id: m.id, name: m.name, default: m.default, color: m.color,
-    }))));
-    app.get('/models', async (c) => c.json(await this.harness.listAvailableModels()));
-    app.get('/threads', async (c) => {
-      const allResources = c.req.query('allResources') === 'true';
-      return c.json(await this.harness.listThreads({ allResources }));
-    });
-    app.get('/messages', async (c) => {
-      const limit = parseInt(c.req.query('limit') ?? '40');
-      return c.json(await this.harness.listMessages({ limit }));
-    });
-    app.get('/permissions', (c) => c.json(this.harness.getPermissionRules()));
-    app.get('/running', (c) => c.json({ running: this.harness.isRunning() }));
-
-    return app;
-  }
-
-  private serializeDisplayState(): Record<string, unknown> {
-    const ds = this.harness.getDisplayState();
-    return {
-      ...ds,
-      // Convert Maps to plain objects for JSON serialization
-      activeTools: Object.fromEntries(ds.activeTools),
-      toolInputBuffers: Object.fromEntries(ds.toolInputBuffers),
-      activeSubagents: Object.fromEntries(ds.activeSubagents),
-      modifiedFiles: Object.fromEntries(
-        [...ds.modifiedFiles].map(([k, v]) => [k, { ...v, firstModified: v.firstModified.toISOString() }])
-      ),
-    };
-  }
-
-  private serializeEvent(event: HarnessEvent): string {
-    if (event.type === 'display_state_changed') {
-      return JSON.stringify({
-        ...event,
-        displayState: this.serializeDisplayState(),
-      });
-    }
-    return JSON.stringify(event);
-  }
-
-  private getSnapshot() {
-    return {
-      state: this.harness.getState(),
-      displayState: this.serializeDisplayState(),
-      modeId: this.harness.getCurrentModeId(),
-      modelId: this.harness.getCurrentModelId(),
-      threadId: this.harness.getCurrentThreadId(),
-      running: this.harness.isRunning(),
-    };
-  }
-}
+```
+GET  /api/harness/:harnessId/events          — SSE event stream (responseType: 'stream', streamFormat: 'sse')
+GET  /api/harness/:harnessId/snapshot         — Full snapshot (state + displayState + session)
+GET  /api/harness/:harnessId/display-state    — Canonical display state
+GET  /api/harness/:harnessId/state            — Harness state
+GET  /api/harness/:harnessId/modes            — Available modes
+GET  /api/harness/:harnessId/models           — Available models with auth status
+GET  /api/harness/:harnessId/threads          — Thread list
+GET  /api/harness/:harnessId/messages         — Messages for current thread
+GET  /api/harness/:harnessId/permissions      — Permission rules
+POST /api/harness/:harnessId/send             — Send message (starts agent turn)
+POST /api/harness/:harnessId/steer            — Steer mid-stream
+POST /api/harness/:harnessId/followup         — Queue follow-up
+POST /api/harness/:harnessId/abort            — Abort current operation
+POST /api/harness/:harnessId/approve          — Respond to tool approval
+POST /api/harness/:harnessId/answer           — Answer agent question
+POST /api/harness/:harnessId/plan-response    — Respond to plan approval
+POST /api/harness/:harnessId/mode             — Switch mode
+POST /api/harness/:harnessId/model            — Switch model
+POST /api/harness/:harnessId/state            — Update state
+POST /api/harness/:harnessId/threads          — Create thread
+POST /api/harness/:harnessId/threads/switch   — Switch thread
+POST /api/harness/:harnessId/permissions      — Set permission policies
 ```
 
-##### Usage — Mounting on a Server
-
-```typescript
-import { Harness } from '@mastra/core/harness';
-import { HarnessTransport } from '@mastra/harness-transport';
-import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
-
-const harness = new Harness({ /* ... */ });
-await harness.init();
-await harness.selectOrCreateThread();
-
-const transport = new HarnessTransport({ harness });
-
-const app = new Hono();
-app.route('/harness', transport.getApp());
-
-serve({ fetch: app.fetch, port: 3000 });
-// WebSocket: ws://localhost:3000/harness/ws
-// SSE:       http://localhost:3000/harness/events
-// REST:      http://localhost:3000/harness/send, /steer, /abort, etc.
-```
-
-##### Usage — Client Side
-
-```typescript
-// Minimal client that drives the Harness over WebSocket
-const ws = new WebSocket('ws://localhost:3000/harness/ws');
-let reqId = 0;
-
-ws.onmessage = (event) => {
-  const frame = JSON.parse(event.data);
-  if (frame.type === 'event') {
-    handleEvent(frame.event, frame.payload);
-  } else if (frame.type === 'res') {
-    resolveRequest(frame.id, frame);
-  } else if (frame.type === 'snapshot') {
-    initializeUI(frame);
-  }
-};
-
-function send(method: string, params: unknown): Promise<unknown> {
-  const id = String(++reqId);
-  ws.send(JSON.stringify({ type: 'req', id, method, params }));
-  return waitForResponse(id);
-}
-
-// Drive the Harness from anywhere
-await send('sendMessage', { content: 'Hello from the web UI' });
-await send('switchMode', { modeId: 'coding' });
-await send('approve', { decision: 'approve' });
-```
+This gets auth, request context, Zod validation, and SSE streaming for free from the existing server infrastructure.
 
 ---
 
