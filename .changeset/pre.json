@@ -112,7 +112,30 @@
     "@mastra/blaxel": "0.0.2",
     "@mastra/e2b": "0.1.0",
     "@mastra/gcs": "0.1.1",
-    "@mastra/s3": "0.2.0"
+    "@mastra/s3": "0.2.0",
+    "@mastra/daytona": "0.0.1"
   },
-  "changesets": []
+  "changesets": [
+    "add-daytona-sandbox-provider",
+    "atomic-updates-clickhouse",
+    "atomic-updates-cloudflare-d1",
+    "atomic-updates-cloudflare",
+    "atomic-updates-convex",
+    "atomic-updates-core",
+    "atomic-updates-dynamodb",
+    "atomic-updates-lance",
+    "atomic-updates-libsql",
+    "atomic-updates-mongodb",
+    "atomic-updates-mssql",
+    "atomic-updates-pg",
+    "atomic-updates-upstash",
+    "automated-provider-registry-20260226-004505",
+    "big-chefs-cross",
+    "bold-towns-boil",
+    "busy-lamps-film",
+    "fix-parallel-workflow-runid",
+    "modern-dingos-show",
+    "soft-paws-marry",
+    "thin-knives-accept"
+  ]
 }

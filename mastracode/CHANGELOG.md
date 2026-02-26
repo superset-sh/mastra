@@ -1,5 +1,23 @@
 # mastracode
 
+## 0.4.1-alpha.0
+
+### Patch Changes
+
+- Removed unnecessary Mastra instance wrapper in createMastraCode. The Agent is now created standalone and the Harness handles Mastra registration internally during init(). ([#13519](https://github.com/mastra-ai/mastra/pull/13519))
+
+- Model pack selection is now more consistent and reliable in mastracode. ([#13512](https://github.com/mastra-ai/mastra/pull/13512))
+  - `/models` is now the single command for choosing and managing model packs.
+  - Model picker ranking now learns from your recent selections and keeps those preferences across sessions.
+  - Pack choice now restores correctly per thread when switching between threads.
+  - Custom packs now support full create, rename, targeted edit, and delete workflows.
+  - The built-in **Varied** option has been retired; users who had it selected are automatically migrated to a saved custom pack named `varied`.
+
+- Updated dependencies [[`88de7e8`](https://github.com/mastra-ai/mastra/commit/88de7e8dfe4b7e1951a9e441bb33136e705ce24e), [`88de7e8`](https://github.com/mastra-ai/mastra/commit/88de7e8dfe4b7e1951a9e441bb33136e705ce24e), [`88de7e8`](https://github.com/mastra-ai/mastra/commit/88de7e8dfe4b7e1951a9e441bb33136e705ce24e), [`edee4b3`](https://github.com/mastra-ai/mastra/commit/edee4b37dff0af515fc7cc0e8d71ee39e6a762f0), [`09c3b18`](https://github.com/mastra-ai/mastra/commit/09c3b1802ff14e243a8a8baea327440bc8cc2e32), [`524c0f3`](https://github.com/mastra-ai/mastra/commit/524c0f3c434c3d9d18f66338dcef383d6161b59c), [`b03c0e0`](https://github.com/mastra-ai/mastra/commit/b03c0e0389a799523929a458b0509c9e4244d562), [`191e5bd`](https://github.com/mastra-ai/mastra/commit/191e5bd29b82f5bda35243945790da7bc7b695c2), [`31c78b3`](https://github.com/mastra-ai/mastra/commit/31c78b3eb28f58a8017f1dcc795c33214d87feac)]:
+  - @mastra/core@1.9.0-alpha.0
+  - @mastra/libsql@1.6.3-alpha.0
+  - @mastra/pg@1.7.1-alpha.0
+
 ## 0.4.0
 
 ### Minor Changes
