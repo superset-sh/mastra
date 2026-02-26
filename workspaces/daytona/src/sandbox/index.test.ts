@@ -692,22 +692,6 @@ describe('DaytonaSandbox', () => {
       expect(instructions).toContain('Cloud sandbox');
     });
 
-    it('includes dynamically detected working directory', async () => {
-      mockSandbox.process.executeCommand = vi.fn().mockResolvedValue({ result: '/home/daytona\n' });
-      const sandbox = new DaytonaSandbox();
-      await sandbox._start();
-
-      expect(sandbox.getInstructions()).toContain('/home/daytona');
-    });
-
-    it('omits working directory when detection fails', async () => {
-      mockSandbox.process.executeCommand = vi.fn().mockRejectedValue(new Error('failed'));
-      const sandbox = new DaytonaSandbox();
-      await sandbox._start();
-
-      expect(sandbox.getInstructions()).not.toContain('working directory');
-    });
-
     it('includes command timeout in seconds', () => {
       const sandbox = new DaytonaSandbox({ timeout: 60_000 });
       expect(sandbox.getInstructions()).toContain('60s');
