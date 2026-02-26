@@ -65,13 +65,18 @@ export interface MastraCodeConfig {
   disableHooks?: boolean;
 }
 
+export function createAuthStorage() {
+  const authStorage = new AuthStorage();
+  setAuthStorage(authStorage);
+  setOpenAIAuthStorage(authStorage);
+  return authStorage;
+}
+
 export async function createMastraCode(config?: MastraCodeConfig) {
   const cwd = config?.cwd ?? process.cwd();
 
   // Auth storage (shared with Claude Max / OpenAI providers and Harness)
-  const authStorage = new AuthStorage();
-  setAuthStorage(authStorage);
-  setOpenAIAuthStorage(authStorage);
+  const authStorage = createAuthStorage();
 
   // Project detection
   const project = detectProject(cwd);
@@ -96,15 +101,6 @@ export async function createMastraCode(config?: MastraCodeConfig) {
   // MCP
   const mcpManager = config?.disableMcp ? undefined : createMcpManager(project.rootPath);
 
-  // Agent
-  const codeAgent = new Agent({
-    id: 'code-agent',
-    name: 'Code Agent',
-    instructions: getDynamicInstructions,
-    model: getDynamicModel,
-    tools: createDynamicTools(mcpManager, config?.extraTools),
-  });
-
   // Hooks
   const hookManager = config?.disableHooks ? undefined : new HookManager(project.rootPath, 'session-init');
 
@@ -113,6 +109,15 @@ export async function createMastraCode(config?: MastraCodeConfig) {
     const hookCount = Object.values(hookConfig).reduce((sum, hooks) => sum + (hooks?.length ?? 0), 0);
     console.info(`Hooks: ${hookCount} hook(s) configured`);
   }
+
+  // Agent
+  const codeAgent = new Agent({
+    id: 'code-agent',
+    name: 'Code Agent',
+    instructions: getDynamicInstructions,
+    model: getDynamicModel,
+    tools: createDynamicTools(mcpManager, config?.extraTools, hookManager),
+  });
 
   // Build subagent definitions with project-scoped tools
   const viewTool = createViewTool(project.rootPath);

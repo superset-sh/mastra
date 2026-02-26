@@ -1,6 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import type { HarnessRequestContext } from '@mastra/core/harness';
 import type { RequestContext } from '@mastra/core/request-context';
+import type { HookManager } from '../hooks';
 import type { McpManager } from '../mcp';
 import type { stateSchema } from '../schema';
 import {
@@ -17,7 +18,40 @@ import {
   requestSandboxAccessTool,
 } from '../tools';
 
-export function createDynamicTools(mcpManager?: McpManager, extraTools?: Record<string, any>) {
+function wrapToolWithHooks(toolName: string, tool: any, hookManager?: HookManager): any {
+  if (!hookManager || typeof tool?.execute !== 'function') {
+    return tool;
+  }
+
+  return {
+    ...tool,
+    async execute(input: unknown, toolContext: unknown) {
+      const preResult = await hookManager.runPreToolUse(toolName, input);
+      if (!preResult.allowed) {
+        return {
+          error: preResult.blockReason ?? `Blocked by PreToolUse hook for tool "${toolName}"`,
+        };
+      }
+
+      let output: unknown;
+      let toolError = false;
+      try {
+        output = await tool.execute(input, toolContext);
+        return output;
+      } catch (error) {
+        toolError = true;
+        output = {
+          error: error instanceof Error ? error.message : String(error),
+        };
+        throw error;
+      } finally {
+        await hookManager.runPostToolUse(toolName, input, output, toolError).catch(() => undefined);
+      }
+    },
+  };
+}
+
+export function createDynamicTools(mcpManager?: McpManager, extraTools?: Record<string, any>, hookManager?: HookManager) {
   return function getDynamicTools({ requestContext }: { requestContext: RequestContext }) {
     const ctx = requestContext.get('harness') as HarnessRequestContext<typeof stateSchema> | undefined;
     const state = ctx?.getState?.();
@@ -82,6 +116,10 @@ export function createDynamicTools(mcpManager?: McpManager, extraTools?: Record<
           delete tools[name];
         }
       }
+    }
+
+    for (const [toolName, tool] of Object.entries(tools)) {
+      tools[toolName] = wrapToolWithHooks(toolName, tool, hookManager);
     }
 
     return tools;
