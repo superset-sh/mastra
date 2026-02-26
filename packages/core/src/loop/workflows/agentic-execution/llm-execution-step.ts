@@ -852,10 +852,11 @@ export function createLLMExecutionStep<TOOLS extends ToolSet = ToolSet, OUTPUT =
           },
         });
 
-        const transportResolver =
-          currentStep.model instanceof ModelRouterLanguageModel
-            ? () => currentStep.model._getStreamTransport()
-            : undefined;
+        let transportResolver: (() => StreamTransport | undefined) | undefined;
+        if (currentStep.model instanceof ModelRouterLanguageModel) {
+          const routerModel = currentStep.model;
+          transportResolver = () => routerModel._getStreamTransport();
+        }
 
         try {
           await processOutputStream({
