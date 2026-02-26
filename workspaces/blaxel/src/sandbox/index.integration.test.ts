@@ -47,119 +47,6 @@ function getS3TestConfig() {
 }
 
 /**
- * Basic Blaxel integration tests.
- */
-describe.skipIf(!hasBlaxelCredentials)('BlaxelSandbox Integration', () => {
-  let sandbox: BlaxelSandbox;
-
-  beforeEach(() => {
-    sandbox = new BlaxelSandbox({
-      id: `test-${Date.now()}`,
-      timeout: '5m',
-    });
-  });
-
-  afterEach(async () => {
-    if (sandbox) {
-      try {
-        await sandbox._destroy();
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
-  });
-
-  it('can start and execute commands', async () => {
-    await sandbox._start();
-
-    const result = await sandbox.executeCommand('echo', ['Hello Blaxel']);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('Hello Blaxel');
-  }, 120000);
-
-  it('can reconnect to existing sandbox', async () => {
-    await sandbox._start();
-    const originalId = sandbox.id;
-
-    // Create new sandbox instance with same ID
-    const sandbox2 = new BlaxelSandbox({ id: originalId });
-    await sandbox2._start();
-
-    // Should reconnect to existing
-    expect(sandbox2.status).toBe('running');
-
-    await sandbox2._destroy();
-  }, 120000);
-
-  it('can execute multiple commands sequentially', async () => {
-    await sandbox._start();
-
-    const result1 = await sandbox.executeCommand('echo', ['first']);
-    expect(result1.exitCode).toBe(0);
-    expect(result1.stdout.trim()).toBe('first');
-
-    const result2 = await sandbox.executeCommand('echo', ['second']);
-    expect(result2.exitCode).toBe(0);
-    expect(result2.stdout.trim()).toBe('second');
-  }, 120000);
-
-  it('captures exit codes correctly', async () => {
-    await sandbox._start();
-
-    const result = await sandbox.executeCommand('sh', ['-c', 'exit 42']);
-    expect(result.exitCode).toBe(42);
-    expect(result.success).toBe(false);
-  }, 120000);
-
-  it('handles environment variables', async () => {
-    await sandbox._start();
-
-    const result = await sandbox.executeCommand('sh', ['-c', 'echo $MY_VAR'], {
-      env: { MY_VAR: 'hello-world' },
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('hello-world');
-  }, 120000);
-
-  it('respects working directory option', async () => {
-    await sandbox._start();
-
-    const result = await sandbox.executeCommand('pwd', [], { cwd: '/tmp' });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('/tmp');
-  }, 120000);
-
-  it('reports sandbox info', async () => {
-    await sandbox._start();
-
-    const info = await sandbox.getInfo();
-
-    expect(info.id).toBe(sandbox.id);
-    expect(info.provider).toBe('blaxel');
-    expect(info.status).toBe('running');
-    expect(info.createdAt).toBeInstanceOf(Date);
-  }, 120000);
-
-  it('can stop and restart', async () => {
-    await sandbox._start();
-    expect(sandbox.status).toBe('running');
-
-    await sandbox._stop();
-    expect(sandbox.status).toBe('stopped');
-
-    // Restart
-    await sandbox._start();
-    expect(sandbox.status).toBe('running');
-
-    const result = await sandbox.executeCommand('echo', ['after restart']);
-    expect(result.exitCode).toBe(0);
-  }, 180000);
-});
-
-/**
  * S3 Mount integration tests.
  */
 describe.skipIf(!hasBlaxelCredentials || !hasS3Credentials)('BlaxelSandbox S3 Mount Integration', () => {
@@ -500,6 +387,16 @@ if (hasBlaxelCredentials) {
       processManagement: false, // BlaxelSandbox does not implement processes
     },
     testTimeout: 60000,
+    createMountableFilesystem: hasS3Credentials
+      ? () =>
+          ({
+            id: 'test-s3-conformance',
+            name: 'S3Filesystem',
+            provider: 's3',
+            status: 'ready',
+            getMountConfig: () => getS3TestConfig(),
+          }) as any
+      : undefined,
   });
 }
 

@@ -212,7 +212,102 @@ export function createMountOperationsTests(getContext: () => TestContext): void 
       );
     });
 
-    // Note: More comprehensive mount tests (S3, GCS, error cases) are better
-    // done in provider-specific tests or integration tests with real filesystems
+    describe('Mount Safety', () => {
+      it(
+        'mount errors if directory exists and is non-empty',
+        async () => {
+          const { sandbox, capabilities } = getContext();
+          if (!capabilities.supportsMounting) return;
+          if (!sandbox.mount || !sandbox.executeCommand) return;
+
+          const testDir = '/tmp/test-non-empty-' + Date.now();
+
+          // Create non-empty directory
+          await sandbox.executeCommand('mkdir', ['-p', testDir]);
+          await sandbox.executeCommand('sh', ['-c', `echo "existing" > ${testDir}/file.txt`]);
+
+          const mockFilesystem = {
+            id: 'test-fs-nonempty',
+            name: 'MockFS',
+            provider: 'mock',
+            status: 'ready',
+            getMountConfig: () => ({ type: 's3', bucket: 'test' }),
+          } as any;
+
+          const result = await sandbox.mount(mockFilesystem, testDir);
+          expect(result.success).toBe(false);
+          expect(result.error).toContain('not empty');
+
+          // Clean up
+          await sandbox.executeCommand('rm', ['-rf', testDir]);
+        },
+        getContext().testTimeout,
+      );
+
+      it(
+        'mount succeeds if directory exists but is empty',
+        async () => {
+          const { sandbox, capabilities } = getContext();
+          if (!capabilities.supportsMounting) return;
+          if (!sandbox.mount || !sandbox.executeCommand) return;
+
+          const testDir = '/tmp/test-empty-' + Date.now();
+
+          // Create empty directory
+          await sandbox.executeCommand('mkdir', ['-p', testDir]);
+
+          const mockFilesystem = {
+            id: 'test-fs-empty',
+            name: 'MockFS',
+            provider: 'mock',
+            status: 'ready',
+            getMountConfig: () => ({ type: 's3', bucket: 'test' }),
+          } as any;
+
+          const result = await sandbox.mount(mockFilesystem, testDir);
+          // Empty directory should not block mounting
+          if (!result.success) {
+            // If mount failed, it should NOT be because of non-empty directory
+            expect(result.error).not.toContain('not empty');
+          }
+
+          // Clean up
+          if (sandbox.unmount) {
+            try {
+              await sandbox.unmount(testDir);
+            } catch {
+              // May not be mounted if mount failed for other reasons
+            }
+          }
+          await sandbox.executeCommand('rm', ['-rf', testDir]);
+        },
+        getContext().testTimeout,
+      );
+    });
+
+    describe('Unmount Cleanup', () => {
+      it(
+        'unmount removes mount directory',
+        async () => {
+          const { sandbox, capabilities, createMountableFilesystem } = getContext();
+          if (!capabilities.supportsMounting) return;
+          if (!sandbox.mount || !sandbox.unmount || !sandbox.executeCommand) return;
+          if (!createMountableFilesystem) return;
+
+          const filesystem = await createMountableFilesystem();
+          if (!filesystem.getMountConfig) return;
+
+          const mountPath = '/tmp/test-unmount-dir-' + Date.now();
+
+          await sandbox.mount(filesystem, mountPath);
+          await sandbox.unmount(mountPath);
+
+          // Directory should be removed after unmount
+          const checkDir = await sandbox.executeCommand('test', ['-d', mountPath]);
+          expect(checkDir.exitCode).not.toBe(0);
+        },
+        getContext().testTimeout,
+      );
+    });
   });
 }
