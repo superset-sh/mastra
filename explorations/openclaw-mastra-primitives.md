@@ -2088,6 +2088,94 @@ For Tailscale, it's deployment configuration, not application code — run the s
 
 **Total effort for full OpenClaw feature parity**: ~4-6 weeks, dominated by channel adapter implementations. The Harness, Agent, Tool, Memory, and Storage primitives cover the hard AI/orchestration problems. The gaps are all in the messaging infrastructure layer — standard platform integration work.
 
+---
+
+### Highest-Value Work Items (Prioritized)
+
+Looking across the gaps, here's what creates the most leverage — ordered by impact, not by ease.
+
+#### Priority 1: Harness Event Transport
+
+**Why it's #1**: This is the bottleneck that gates everything else.
+
+Today, the Harness is consumed exclusively in-process. Mastra Code creates a `Harness` instance and passes it directly to `MastraTUI` in the same Node.js process:
+
+```typescript
+// mastracode/src/main.ts — this is the only consumption pattern today
+const tui = new MastraTUI({ harness, hookManager, authStorage, mcpManager });
+tui.run();
+```
+
+This means the Harness — with its 35+ event types, display state, tool approvals, message queueing, mode switching, and thread management — can only be driven by code running in the same process. No web UI, no mobile app, no remote CLI, no multi-client access.
+
+Building a transport layer (WebSocket + SSE + REST control API) turns the Harness from a "TUI-only primitive" into a "platform primitive" that any client can drive. Every gap that follows (channel adapters, debouncing, queue modes) benefits from this because they all produce events that need to reach remote consumers.
+
+**What to build**: A `HarnessTransport` that:
+1. Subscribes to Harness events and streams them over WebSocket/SSE
+2. Exposes Harness control methods (`sendMessage`, `steer`, `followUp`, `abort`, `approve`, `switchMode`, `switchModel`, etc.) as REST endpoints or WebSocket request frames
+3. Handles authentication (bearer token, session management)
+4. Supports multiple concurrent clients
+
+**Unlocks**: Web UIs, mobile apps, desktop apps, remote access, multi-client, the entire OpenClaw multi-client model. Also makes the Harness testable from integration tests without spinning up a TUI.
+
+---
+
+#### Priority 2: Channel Adapter Interface + 1 Reference Implementation
+
+**Why it's #2**: The multi-channel messaging story is OpenClaw's core value prop. Without at least one working channel adapter, "OpenClaw on Mastra" is just a local TUI (which Mastra Code already is). A channel adapter proves the pattern and unlocks the messaging use case.
+
+**What to build**:
+1. A `ChannelAdapter` interface (connect, disconnect, sendMessage, formatIncoming, getCapabilities)
+2. A `ChannelGateway` class that wires adapters to a Harness instance (incoming messages → `sendMessage`/`followUp`/`steer`, Harness events → outbound channel messages)
+3. One reference implementation — **Telegram** is the best choice because:
+   - Simple webhook-based API (no persistent connection to manage)
+   - Well-documented, stable SDK (`grammy`)
+   - No device pairing needed (bot token)
+   - Supports text, media, inline keyboards, threading
+   - Easy to test (BotFather setup takes 2 minutes)
+
+**Unlocks**: Proves the full pipeline: Telegram message → ChannelGateway → Harness → Agent → Tool execution → response → Telegram reply. Once this works, adding Discord/Slack/WhatsApp is just implementing the same interface with different SDKs.
+
+---
+
+#### Priority 3: Message Debouncing + Queue Layer
+
+**Why it's #3**: This is small (~0.5 days) but required for any channel integration to work well. Without debouncing, rapid messages from WhatsApp (where users send 3-4 short messages in a row) spawn separate agent turns. Without queue management, messages that arrive mid-turn are dropped.
+
+**What to build**: The `MessageDebouncer` and `MessageQueue` classes shown in Gaps 2 and 5 above. These sit between the ChannelGateway and the Harness:
+
+```
+Channel → ChannelAdapter → MessageDebouncer → MessageQueue → Harness
+```
+
+The Harness already has `steer()`, `followUp()`, and `abort()` — the queue layer just applies policy to decide which one to call.
+
+**Unlocks**: Production-quality message handling for any channel. Configurable per-channel (WhatsApp: 5s debounce, Discord: 1.5s). Overflow policies prevent unbounded queue growth.
+
+---
+
+#### Priority 4: Device Pairing for WhatsApp/Signal
+
+**Why this is lower**: WhatsApp and Signal require complex pairing flows (QR codes, device linking, session persistence), and they're only needed when you want those specific channels. Telegram, Discord, and Slack all work with simple API tokens.
+
+**When to do it**: After Priorities 1-3 are working with the Telegram reference implementation. WhatsApp is the most requested channel, so it should be next, but it's not gating the architecture.
+
+---
+
+#### Priority 5: Advanced Queue Modes
+
+**Why this is lower**: The Harness's built-in `steer()` and `followUp()` cover the `steer` and `followup` modes. The `collect`, `steer-backlog`, and `interrupt` modes are refinements. The `summarize` overflow policy (summarize dropped messages into a bullet list) is a nice touch but not essential.
+
+**When to do it**: When real-world usage shows that `steer`/`followUp` aren't sufficient. For most single-user deployments, they are.
+
+---
+
+#### Priority 6: Discovery / Networking
+
+**Why this is lowest**: mDNS discovery is a convenience for LAN deployments. Tailscale integration is ops configuration, not application code. Neither is needed to prove the architecture.
+
+**When to do it**: When deploying to production environments where discoverability matters.
+
 ### What the Harness Eliminated
 
 For context, here's what would also be gaps without the Harness:
