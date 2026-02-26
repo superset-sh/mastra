@@ -74,7 +74,7 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
           servers: r.servers,
           selectedTools: mcpClientRecord?.[r.id]?.tools ?? {},
         }));
-        form.setValue('mcpClients', mcpClientValues);
+        form.setValue('mcpClients', mcpClientValues, { shouldDirty: true });
 
         // Sync MCP tools into form.tools
         const currentTools = form.getValues('tools') ?? {};
@@ -84,7 +84,7 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
             next[name] = { description: config.description };
           }
         }
-        form.setValue('tools', next);
+        form.setValue('tools', next, { shouldDirty: true });
       })
       .catch(() => {
         // Silently ignore — clients may have been deleted
@@ -140,6 +140,8 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
         agents: values.agents && Object.keys(values.agents).length > 0 ? values.agents : undefined,
         mcpClients: mcpClientsParam,
         scorers: mapScorersToApi(values.scorers),
+        skills: values.skills,
+        workspace: values.workspace,
         requestContextSchema: values.variables ? Object.fromEntries(Object.entries(values.variables)) : undefined,
       };
     },
@@ -188,7 +190,10 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
         memory: editMemory,
       });
 
+      // Reset form dirty state so publish can detect unsaved changes
+      form.reset(values);
       queryClient.invalidateQueries({ queryKey: ['agent-versions', agentId] });
+      queryClient.invalidateQueries({ queryKey: ['agent', agentId] });
       toast.success('Draft saved');
     } catch (error) {
       toast.error(`Failed to save draft: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -209,27 +214,24 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
 
     try {
       if (isEdit) {
-        const sharedParams = await buildSharedParams(values);
-        const editMemory = buildMemoryParams(values);
+        // Check if there's an unpublished draft version to activate
+        const [agentDetails, versionsResponse] = await Promise.all([
+          client.getStoredAgent(options.agentId).details(),
+          client.getStoredAgent(options.agentId).listVersions({ sortDirection: 'DESC', perPage: 1 }),
+        ]);
 
-        // Save draft first
-        await updateStoredAgent.mutateAsync({
-          ...sharedParams,
-          memory: editMemory,
-        });
-
-        // Fetch latest version and activate it
-        const versionsResponse = await client
-          .getStoredAgent(options.agentId)
-          .listVersions({ sortDirection: 'DESC', perPage: 1 });
         const latestVersion = versionsResponse.versions[0];
-        if (latestVersion) {
-          await client.getStoredAgent(options.agentId).activateVersion(latestVersion.id);
+        if (!latestVersion || latestVersion.id === agentDetails.activeVersionId) {
+          toast.error('No draft changes to publish. Save a draft first.');
+          return;
         }
+
+        await client.getStoredAgent(options.agentId).activateVersion(latestVersion.id);
 
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['agent-versions', agentId] }),
           queryClient.invalidateQueries({ queryKey: ['stored-agent', agentId] }),
+          queryClient.invalidateQueries({ queryKey: ['agent', agentId] }),
           queryClient.invalidateQueries({ queryKey: ['agents'] }),
           queryClient.invalidateQueries({ queryKey: ['stored-agents'] }),
         ]);
@@ -263,26 +265,19 @@ export function useAgentCmsForm(options: UseAgentCmsFormOptions) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [
-    form,
-    isEdit,
-    client,
-    createStoredAgent,
-    updateStoredAgent,
-    options,
-    agentId,
-    buildSharedParams,
-    buildMemoryParams,
-    queryClient,
-  ]);
+  }, [form, isEdit, client, createStoredAgent, options, agentId, buildSharedParams, queryClient]);
 
   const watched = useWatch({ control: form.control });
 
   const canPublish = useMemo(() => {
     const identityDone = !!watched.name && !!watched.model?.provider && !!watched.model?.name;
-    const instructionsDone = (watched.instructionBlocks ?? []).some(b => b.content?.trim());
+    const instructionsDone = (watched.instructionBlocks ?? []).some(
+      b => b.type === 'prompt_block_ref' || (b.type === 'prompt_block' && b.content?.trim()),
+    );
     return identityDone && instructionsDone;
   }, [watched.name, watched.model?.provider, watched.model?.name, watched.instructionBlocks]);
 
-  return { form, handlePublish, handleSaveDraft, isSubmitting, isSavingDraft, canPublish };
+  const isDirty = form.formState.isDirty;
+
+  return { form, handlePublish, handleSaveDraft, isSubmitting, isSavingDraft, canPublish, isDirty };
 }
