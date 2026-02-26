@@ -8,12 +8,7 @@ import type { IMastraLogger } from '../logger';
 import type { Mastra } from '../mastra';
 import type { AnySpan, TracingContext, TracingOptions, TracingPolicy, TracingProperties } from '../observability';
 import type { RequestContext } from '../request-context';
-import type {
-  InferPublicSchema,
-  PublicSchema,
-  StandardSchemaWithJSON,
-  InferStandardSchemaOutput,
-} from '../schema/schema';
+import type { InferPublicSchema, PublicSchema, StandardSchemaWithJSON, InferStandardSchemaOutput } from '../schema';
 import type { OutputSchema } from '../stream';
 import type { SchemaWithValidation } from '../stream/base/schema';
 import type { ChunkType, WorkflowStreamEvent } from '../stream/types';

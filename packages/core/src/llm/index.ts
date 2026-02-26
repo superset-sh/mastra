@@ -19,7 +19,7 @@ import type { SystemModelMessage } from '@internal/ai-sdk-v5';
 import type { TracingContext } from '../observability';
 import type { RequestContext } from '../request-context';
 import type { Run } from '../run/types';
-import type { StandardSchemaWithJSON } from '../schema/schema';
+import type { StandardSchemaWithJSON } from '../schema';
 import type { CoreTool } from '../tools/types';
 import type { MastraLanguageModel } from './model/shared.types';
 

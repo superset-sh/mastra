@@ -1,8 +1,6 @@
 import type { RequestContext } from '../request-context';
-import { toStandardSchema } from '../schema/schema';
-import type { PublicSchema, StandardSchemaWithJSON } from '../schema/schema';
-import { standardSchemaToJSONSchema } from '../schema/standard-schema';
-import type { StandardSchemaIssue } from '../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../schema';
+import type { PublicSchema, StandardSchemaWithJSON, StandardSchemaIssue } from '../schema';
 import { getZodTypeName, isZodArray, isZodObject, unwrapZodType } from '../utils/zod-utils';
 
 /**

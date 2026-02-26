@@ -14,7 +14,7 @@ import type { MastraUnion } from '../action';
 import type { Mastra } from '../mastra';
 import type { TracingContext } from '../observability';
 import type { RequestContext } from '../request-context';
-import type { PublicSchema } from '../schema/schema';
+import type { PublicSchema } from '../schema';
 import type { SuspendOptions, OutputWriter } from '../workflows';
 import type { Workspace } from '../workspace/workspace';
 import type { ToolStream } from './stream';

@@ -51,9 +51,8 @@ import { WorkspaceInstructionsProcessor } from '../processors/processors/workspa
 import type { ProcessorState } from '../processors/runner';
 import { ProcessorRunner } from '../processors/runner';
 import { RequestContext, MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY } from '../request-context';
-import { toStandardSchema } from '../schema/schema';
-import type { InferStandardSchemaOutput } from '../schema/schema';
-import { standardSchemaToJSONSchema } from '../schema/standard-schema';
+import type { InferStandardSchemaOutput } from '../schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../schema';
 import { ChunkFrom } from '../stream';
 import type { MastraAgentNetworkStream } from '../stream';
 import type { FullOutput, MastraModelOutput } from '../stream/base/output';

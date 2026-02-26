@@ -14,7 +14,7 @@ import type { LoopOptions } from '../../loop/types';
 import type { TracingContext } from '../../observability';
 import type { OutputProcessorOrWorkflow } from '../../processors';
 import type { RequestContext } from '../../request-context';
-import type { StandardSchemaWithJSON } from '../../schema/schema';
+import type { StandardSchemaWithJSON } from '../../schema';
 import type { inferOutput } from './shared.types';
 
 export type OriginalStreamTextOptions<

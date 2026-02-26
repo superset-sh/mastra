@@ -2,7 +2,7 @@ import type { JSONSchema7 } from 'json-schema';
 import z from 'zod/v4';
 import type { MastraDBMessage } from '../agent/message-list';
 import { ErrorCategory, ErrorDomain, MastraError } from '../error';
-import { toStandardSchema, standardSchemaToJSONSchema } from '../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../schema';
 import type {
   MemoryStorage,
   StorageListMessagesInput,

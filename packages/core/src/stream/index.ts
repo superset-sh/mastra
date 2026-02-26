@@ -44,7 +44,7 @@ export type {
 } from './types';
 
 /**
- * @deprecated Use StandardSchemaWithJSON from '../schema/schema' instead
+ * @deprecated Use StandardSchemaWithJSON from '../schema' instead
  */
 export type { OutputSchema, PartialSchemaOutput } from './base/schema';
 export type { FullOutput } from './base/output';

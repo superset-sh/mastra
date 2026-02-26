@@ -17,13 +17,8 @@ import { EntityType, SpanType } from '../../observability';
 import type { Processor } from '../../processors';
 import { ProcessorRunner, ProcessorStepOutputSchema, ProcessorStepSchema } from '../../processors';
 import type { ProcessorStepOutput } from '../../processors/step-schema';
-import { toStandardSchema } from '../../schema/schema';
-import type {
-  InferPublicSchema,
-  InferStandardSchemaOutput,
-  PublicSchema,
-  StandardSchemaWithJSON,
-} from '../../schema/schema';
+import { toStandardSchema } from '../../schema';
+import type { InferPublicSchema, InferStandardSchemaOutput, PublicSchema, StandardSchemaWithJSON } from '../../schema';
 
 import { WorkflowRunOutput } from '../../stream/RunOutput';
 import type { ChunkType } from '../../stream/types';

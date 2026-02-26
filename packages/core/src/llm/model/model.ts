@@ -23,7 +23,7 @@ import { MastraError, ErrorDomain, ErrorCategory } from '../../error';
 import type { Mastra } from '../../mastra';
 import { SpanType } from '../../observability';
 import { executeWithContext, executeWithContextSync } from '../../observability/utils';
-import { toStandardSchema, standardSchemaToJSONSchema } from '../../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
 import { convertV4Usage } from '../../stream/aisdk/v4/usage';
 import { delay, isZodType } from '../../utils';
 import { isZodArray, getZodDef } from '../../utils/zod-utils';
@@ -163,6 +163,18 @@ export class MastraLLMV1 extends MastraBase {
         schema = jsonSchema<inferOutput<Z>>(jsonSchemaToUse);
       } else {
         schema = jsonSchema<inferOutput<Z>>(experimental_output);
+      }
+    }
+
+    // make json schema a ai sdk schema
+    if (tools && Object.keys(tools).length > 0) {
+      for (const tool of Object.values(tools)) {
+        if (tool.parameters) {
+          tool.parameters = jsonSchema(standardSchemaToJSONSchema(tool.parameters.jsonSchema));
+        }
+        // if ('outputSchema' in tool && tool.outputSchema) {
+        //   tool.outputSchema = jsonSchema(tool.outputSchema);
+        // }
       }
     }
 
@@ -344,7 +356,12 @@ export class MastraLLMV1 extends MastraBase {
       let output: 'object' | 'array' = 'object';
       if (isZodArray(structuredOutput)) {
         output = 'array';
-        structuredOutput = getZodDef(structuredOutput).type;
+        const zodDef = getZodDef(structuredOutput);
+        if ('element' in zodDef) {
+          structuredOutput = zodDef.element;
+        } else {
+          structuredOutput = zodDef.type;
+        }
       }
 
       const processedSchema = this._applySchemaCompat(structuredOutput!);
@@ -493,6 +510,18 @@ export class MastraLLMV1 extends MastraBase {
       },
       tracingPolicy: this.#options?.tracingPolicy,
     });
+
+    // make json schema a ai sdk schema
+    if (tools && Object.keys(tools).length > 0) {
+      for (const tool of Object.values(tools)) {
+        if (tool.parameters) {
+          tool.parameters = jsonSchema(tool.parameters);
+        }
+        // if ('outputSchema' in tool && tool.outputSchema) {
+        //   tool.outputSchema = jsonSchema(tool.outputSchema);
+        // }
+      }
+    }
 
     const argsForExecute: OriginalStreamTextOptions<Tools, Z> = {
       model,

@@ -28,7 +28,7 @@ import type { MemoryConfigInternal, StorageThreadType } from '../memory/types';
 import type { Span, SpanType, TracingContext, TracingOptions, TracingPolicy } from '../observability';
 import type { InputProcessorOrWorkflow, OutputProcessorOrWorkflow } from '../processors/index';
 import type { RequestContext } from '../request-context';
-import type { PublicSchema, StandardSchemaWithJSON } from '../schema/schema';
+import type { PublicSchema, StandardSchemaWithJSON } from '../schema';
 import type { ModelManagerModelConfig } from '../stream/types';
 import type { ToolAction, VercelTool, VercelToolV5 } from '../tools';
 import type { DynamicArgument } from '../types';

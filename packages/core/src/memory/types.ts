@@ -7,7 +7,7 @@ import type { EmbeddingModelId } from '../llm/model/index.js';
 import type { ModelRouterModelId } from '../llm/model/provider-registry.js';
 import type { MastraLanguageModel, MastraModelConfig } from '../llm/model/shared.types';
 import type { RequestContext } from '../request-context';
-import type { StandardSchemaWithJSON, PublicSchema } from '../schema/schema';
+import type { StandardSchemaWithJSON, PublicSchema } from '../schema';
 import type { MastraCompositeStore } from '../storage';
 import type { DynamicArgument } from '../types';
 import type { MastraEmbeddingModel, MastraEmbeddingOptions, MastraVector } from '../vector';

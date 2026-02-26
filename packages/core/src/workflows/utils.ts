@@ -3,7 +3,7 @@ import { isEmpty } from 'radash';
 import { ErrorCategory, ErrorDomain, getErrorFromUnknown, MastraError } from '../error';
 import type { IMastraLogger } from '../logger';
 import type { RequestContext } from '../request-context';
-import type { StandardSchemaWithJSON } from '../schema/schema';
+import type { StandardSchemaWithJSON } from '../schema';
 import { removeUndefinedValues } from '../utils';
 import type { ExecutionGraph } from './execution-engine';
 import type { Step } from './step';

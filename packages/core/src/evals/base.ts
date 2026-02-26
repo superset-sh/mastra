@@ -10,8 +10,7 @@ import type { Mastra } from '../mastra';
 import type { TracingContext } from '../observability';
 import { InternalSpans } from '../observability';
 import type { PublicSchema } from '../schema';
-import { toStandardSchema } from '../schema';
-import { standardSchemaToJSONSchema } from '../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../schema';
 import { createWorkflow, createStep } from '../workflows';
 import type { ScoringSamplingConfig, ScorerRunInputForAgent, ScorerRunOutputForAgent } from './types';
 

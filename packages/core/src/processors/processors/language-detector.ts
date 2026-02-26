@@ -6,7 +6,7 @@ import { TripWire } from '../../agent/trip-wire';
 import type { ProviderOptions } from '../../llm/model/provider-options';
 import type { MastraModelConfig } from '../../llm/model/shared.types';
 import type { TracingContext } from '../../observability';
-import { standardSchemaToJSONSchema } from '../../schema/standard-schema';
+import { standardSchemaToJSONSchema } from '../../schema';
 import type { Processor } from '../index';
 
 /**

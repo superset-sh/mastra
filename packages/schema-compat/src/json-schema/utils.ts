@@ -55,7 +55,7 @@ export function isOneOfSchema(schema: JSONSchema7): schema is JSONSchema7 & { on
  * Check if a JSON Schema is a union type (anyOf or oneOf)
  */
 export function isUnionSchema(schema: JSONSchema7): boolean {
-  return isAnyOfSchema(schema) || isOneOfSchema(schema);
+  return isAnyOfSchema(schema) || isOneOfSchema(schema) || Array.isArray(schema.type);
 }
 
 /**
@@ -69,11 +69,7 @@ export function isEnumSchema(schema: JSONSchema7): boolean {
  * Check if a JSON Schema is a nullable type
  */
 export function isNullableSchema(schema: JSONSchema7): boolean {
-  if (schema.type) {
-    return false;
-  }
-
-  return !!schema.anyOf?.some(s => (s as JSONSchema7 & { type: string }).type === 'null');
+  return schema.type === 'null';
 }
 
 /**

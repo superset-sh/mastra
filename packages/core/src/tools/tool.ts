@@ -1,7 +1,7 @@
 import type { Mastra } from '../mastra';
 import { RequestContext } from '../request-context';
-import { toStandardSchema } from '../schema/schema';
-import type { PublicSchema, StandardSchemaWithJSON } from '../schema/schema';
+import { toStandardSchema } from '../schema';
+import type { PublicSchema, StandardSchemaWithJSON } from '../schema';
 import type { SuspendOptions } from '../workflows';
 import type { MCPToolProperties, ToolAction, ToolExecutionContext } from './types';
 import { validateToolInput, validateToolOutput, validateToolSuspendData, validateRequestContext } from './validation';

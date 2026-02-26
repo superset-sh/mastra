@@ -4,7 +4,7 @@ import { z } from 'zod/v4';
 import type { MastraMessageContentV2, MessageList } from '../agent/message-list';
 import type { ModelRouterModelId } from '../llm/model';
 import type { MastraLanguageModel, OpenAICompatibleConfig, SharedProviderOptions } from '../llm/model/shared.types';
-import type { InferStandardSchemaOutput, StandardSchemaWithJSON } from '../schema/schema';
+import type { InferStandardSchemaOutput, StandardSchemaWithJSON } from '../schema';
 import type { InferSchemaOutput, OutputSchema } from '../stream/base/schema';
 import type { StructuredOutputOptions } from './processors';
 

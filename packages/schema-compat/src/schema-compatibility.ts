@@ -459,8 +459,44 @@ export abstract class SchemaCompatLayer {
    */
   protected defaultUnionHandler(schema: JSONSchema7): JSONSchema7 {
     if (Array.isArray(schema.type)) {
-      schema.anyOf = schema.type.map(type => ({ type }));
+      schema.anyOf = schema.type.map(type => {
+        const result = { type };
+
+        return result;
+      });
+
       delete schema.type;
+    }
+
+    if (Array.isArray(schema.anyOf)) {
+      // const hasNull = schema.anyOf.some(subSchema => typeof subSchema === 'object' && subSchema.type === 'null');
+      // const hasString = schema.anyOf.some(subSchema => typeof subSchema === 'object' && subSchema.type === 'string');
+
+      schema.anyOf = schema.anyOf
+        .map(subSchema => {
+          if (typeof subSchema !== 'object' || subSchema === null) {
+            return false;
+          }
+
+          // if (subSchema.type === 'string' && hasNull) {
+          //   // @ts-expect-error - nullable is a valid property for JSON Schema
+          //   subSchema.nullable = true;
+          // } else if (subSchema.type === 'array') {
+          //   subSchema.items = [];
+          // } else if (subSchema.type === 'null' && hasString) {
+          //   return false;
+          // }
+
+          this.preProcessJSONNode(subSchema);
+          this.postProcessJSONNode(subSchema);
+
+          return subSchema;
+        })
+        .filter(Boolean);
+
+      if (schema.anyOf.length === 1) {
+        schema = schema.anyOf[0] as unknown as JSONSchema7;
+      }
     }
 
     return schema;
@@ -552,7 +588,8 @@ export abstract class SchemaCompatLayer {
    * Uses 'input' io mode so that fields with defaults are optional (appropriate for tool parameters).
    */
   public toJSONSchema(zodSchema: ZodType): JSONSchema7 {
-    const target = 'draft-07' as StandardJSONSchemaV1.Target;
+    const target =
+      this.getSchemaTarget() === 'jsonSchema7' ? ('draft-07' as StandardJSONSchemaV1.Target) : this.getSchemaTarget();
     const standardSchema = toStandardSchema(zodSchema);
     const jsonSchema = standardSchemaToJSONSchema(standardSchema, {
       target,
@@ -561,11 +598,11 @@ export abstract class SchemaCompatLayer {
 
     traverse(jsonSchema, {
       cb: {
-        pre: (schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema) => {
-          this.preProcessJSONNode(schema, parentSchema);
+        pre: schema => {
+          this.preProcessJSONNode(schema);
         },
-        post: (schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema) => {
-          this.postProcessJSONNode(schema, parentSchema);
+        post: schema => {
+          this.postProcessJSONNode(schema);
         },
       },
     });

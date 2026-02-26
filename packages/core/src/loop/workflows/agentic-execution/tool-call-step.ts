@@ -1,8 +1,7 @@
 import type { ToolSet } from '@internal/ai-sdk-v5';
 import z from 'zod/v4';
 import type { MastraDBMessage } from '../../../memory';
-import { toStandardSchema } from '../../../schema/schema';
-import { standardSchemaToJSONSchema } from '../../../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../../../schema';
 import { ChunkFrom } from '../../../stream/types';
 import type { MastraToolInvocationOptions } from '../../../tools/types';
 import type { SuspendOptions } from '../../../workflows';

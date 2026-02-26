@@ -8,7 +8,7 @@ import type { MastraLanguageModel, OpenAICompatibleConfig, SharedProviderOptions
 import type { Mastra } from '../mastra';
 import type { TracingContext } from '../observability';
 import type { RequestContext } from '../request-context';
-import type { InferStandardSchemaOutput, StandardSchemaWithJSON } from '../schema/schema';
+import type { InferStandardSchemaOutput, StandardSchemaWithJSON } from '../schema';
 import type { ChunkType } from '../stream';
 import type { DataChunkType } from '../stream/types';
 import type { Workflow } from '../workflows';

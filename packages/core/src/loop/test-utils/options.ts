@@ -225,6 +225,7 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
             "description": undefined,
             "inputSchema": {
               "$schema": "http://json-schema.org/draft-07/schema#",
+              "additionalProperties": false,
               "properties": {
                 "value": {
                   "type": "string",
@@ -383,6 +384,7 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
                   "description": undefined,
                   "inputSchema": {
                     "$schema": "http://json-schema.org/draft-07/schema#",
+                    "additionalProperties": false,
                     "properties": {
                       "value": {
                         "type": "string",
@@ -455,6 +457,7 @@ export function optionsTests({ loopFn, runId }: { loopFn: typeof loop; runId: st
                   "description": undefined,
                   "inputSchema": {
                     "$schema": "http://json-schema.org/draft-07/schema#",
+                    "additionalProperties": false,
                     "properties": {
                       "value": {
                         "type": "string",

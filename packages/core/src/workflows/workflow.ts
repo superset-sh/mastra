@@ -22,13 +22,8 @@ import { ProcessorRunner, ProcessorState } from '../processors';
 import type { Processor, ProcessorStreamWriter } from '../processors';
 import { ProcessorStepOutputSchema, ProcessorStepInputSchema } from '../processors/step-schema';
 import type { ProcessorStepInput, ProcessorStepOutput } from '../processors/step-schema';
-import { toStandardSchema } from '../schema/schema';
-import type {
-  InferPublicSchema,
-  InferStandardSchemaOutput,
-  PublicSchema,
-  StandardSchemaWithJSON,
-} from '../schema/schema';
+import { toStandardSchema } from '../schema';
+import type { InferPublicSchema, InferStandardSchemaOutput, PublicSchema, StandardSchemaWithJSON } from '../schema';
 import type { StorageListWorkflowRunsInput } from '../storage';
 import { WorkflowRunOutput } from '../stream/RunOutput';
 import type { ChunkType } from '../stream/types';

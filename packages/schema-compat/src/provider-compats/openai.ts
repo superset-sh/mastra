@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { ZodType as ZodTypeV3, ZodObject as ZodObjectV3 } from 'zod/v3';
 import type { ZodType as ZodTypeV4, ZodObject as ZodObjectV4 } from 'zod/v4';
 import type { Targets } from 'zod-to-json-schema';
-import { isArraySchema, isNullableSchema, isObjectSchema, isStringSchema, isUnionSchema } from '../json-schema/utils';
+import { isArraySchema, isObjectSchema, isStringSchema, isUnionSchema } from '../json-schema/utils';
 import { SchemaCompatLayer } from '../schema-compatibility';
 import type { ZodType } from '../schema.types';
 import type { ModelInformation } from '../types';
@@ -135,20 +135,6 @@ export class OpenAISchemaCompatLayer extends SchemaCompatLayer {
   }
 
   preProcessJSONNode(schema: JSONSchema7, _parentSchema?: JSONSchema7): void {
-    // Process based on schema type
-    if (isNullableSchema(schema)) {
-      if (schema.anyOf && Array.isArray(schema.anyOf)) {
-        // @ts-expect-error it's alright
-        schema.type = schema.anyOf.find(s => s.type !== 'null')?.type;
-        delete schema.anyOf;
-      } else {
-        // @ts-expect-error it's alright
-        schema.type = schema.type.find(type => type !== 'null');
-      }
-      // @ts-expect-error it's alright
-      schema.nullable = true;
-    }
-
     if (isObjectSchema(schema)) {
       this.defaultObjectHandler(schema);
     } else if (isArraySchema(schema)) {
@@ -167,16 +153,16 @@ export class OpenAISchemaCompatLayer extends SchemaCompatLayer {
         }
       } else {
         // Other OpenAI models only have issues with emoji
-        if (schema.format === 'emoji') {
-          delete schema.format;
-        }
+        // if (schema.format === 'emoji') {
+        //   delete schema.format;
+        // }
       }
       this.defaultStringHandler(schema);
     }
   }
 
   postProcessJSONNode(schema: JSONSchema7): void {
-    if (schema.type === undefined) {
+    if (schema.type === undefined && !schema.anyOf) {
       schema.type = ['string', 'number', 'integer', 'boolean', 'object', 'array', 'null'];
     }
 

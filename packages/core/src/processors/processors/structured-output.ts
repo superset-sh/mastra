@@ -5,7 +5,7 @@ import { ErrorCategory, ErrorDomain, MastraError } from '../../error';
 import type { ProviderOptions } from '../../llm/model/provider-options';
 import type { IMastraLogger } from '../../logger';
 import type { TracingContext } from '../../observability';
-import type { StandardSchemaWithJSON } from '../../schema/schema';
+import type { StandardSchemaWithJSON } from '../../schema';
 import { ChunkFrom } from '../../stream';
 import type { ChunkType } from '../../stream';
 import type { ToolCallChunk, ToolResultChunk } from '../../stream/types';

@@ -4,7 +4,7 @@ import type { LanguageModelV1 } from '@internal/ai-sdk-v4';
 import type { JSONSchema7 } from 'json-schema';
 import type { z, ZodSchema } from 'zod/v3';
 import type { TracingPolicy } from '../../observability';
-import type { StandardSchemaWithJSON, InferStandardSchemaOutput } from '../../schema/schema';
+import type { StandardSchemaWithJSON, InferStandardSchemaOutput } from '../../schema';
 import type { ScoringData } from './base.types';
 import type { ModelRouterModelId } from './provider-registry.js';
 

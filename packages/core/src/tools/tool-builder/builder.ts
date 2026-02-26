@@ -9,14 +9,12 @@ import {
   applyCompatLayer,
   convertZodSchemaToAISDKSchema,
 } from '@mastra/schema-compat';
-import type { StandardSchemaWithJSON } from '@mastra/schema-compat';
 import { z } from 'zod/v4';
 import { MastraBase } from '../../base';
 import { ErrorCategory, MastraError, ErrorDomain } from '../../error';
 import { SpanType, wrapMastra, executeWithContext, EntityType } from '../../observability';
 import { RequestContext } from '../../request-context';
-import { isStandardSchemaWithJSON } from '../../schema';
-import { toStandardSchema, standardSchemaToJSONSchema } from '../../schema/standard-schema';
+import { isStandardSchemaWithJSON, toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
 import { isVercelTool } from '../../tools/toolchecks';
 import type { ToolOptions } from '../../utils';
 import { isZodObject } from '../../utils/zod-utils';
@@ -274,12 +272,7 @@ export class CoreToolBuilder extends MastraBase {
     };
   }
 
-  private createExecute(
-    tool: ToolToConvert,
-    options: ToolOptions,
-    logType?: 'tool' | 'toolset' | 'client-tool',
-    processedSchema?: StandardSchemaWithJSON,
-  ) {
+  private createExecute(tool: ToolToConvert, options: ToolOptions, logType?: 'tool' | 'toolset' | 'client-tool') {
     // don't add memory, mastra, or tracing context to logging (tracingContext may contain sensitive observability credentials)
     const {
       logger,
@@ -510,7 +503,7 @@ export class CoreToolBuilder extends MastraBase {
 
         // Validate input parameters if schema exists
         // Use the processed schema for validation if available, otherwise fall back to original
-        const parameters = processedSchema || this.getParameters();
+        const parameters = this.getParameters();
         const { data, error } = validateToolInput(parameters, args, options.name);
         if (error) {
           logger.warn(error.message);
@@ -625,6 +618,8 @@ export class CoreToolBuilder extends MastraBase {
       } else {
         processedInputSchema = standardSchemaToJSONSchema(originalSchema, { io: 'output' });
       }
+
+      processedInputSchema = toStandardSchema(processedInputSchema);
     } else {
       if (applicableLayer && originalSchema) {
         // Get the transformed Zod schema (with constraints removed/modified)
@@ -689,7 +684,7 @@ export class CoreToolBuilder extends MastraBase {
             this.originalTool,
             { ...this.options, description: this.originalTool.description },
             this.logType,
-            toStandardSchema(processedInputSchema), // Pass the processed Zod schema for validation
+            processedInputSchema ? toStandardSchema(processedInputSchema) : undefined, // Pass the processed Zod schema for validation
           )
         : undefined,
     };
@@ -697,7 +692,7 @@ export class CoreToolBuilder extends MastraBase {
     return {
       ...definition,
       id: 'id' in this.originalTool ? this.originalTool.id : undefined,
-      parameters: processedInputSchema ?? convertZodSchemaToAISDKSchema(z.object({})),
+      parameters: processedInputSchema ?? z.object({}),
       outputSchema: processedOutputSchema,
       providerOptions: 'providerOptions' in this.originalTool ? this.originalTool.providerOptions : undefined,
       mcp: 'mcp' in this.originalTool ? this.originalTool.mcp : undefined,

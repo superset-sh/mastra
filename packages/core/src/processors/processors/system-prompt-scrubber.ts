@@ -3,9 +3,8 @@ import { Agent, isSupportedLanguageModel } from '../../agent';
 import type { MastraDBMessage } from '../../agent/message-list';
 import type { MastraModelConfig } from '../../llm/model/shared.types';
 import type { TracingContext } from '../../observability';
-import { toStandardSchema } from '../../schema';
 import type { PublicSchema } from '../../schema';
-import { standardSchemaToJSONSchema } from '../../schema/standard-schema';
+import { toStandardSchema, standardSchemaToJSONSchema } from '../../schema';
 import type { ChunkType } from '../../stream';
 import type { Processor } from '../index';
 
