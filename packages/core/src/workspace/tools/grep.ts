@@ -203,15 +203,15 @@ Usage:
       }
     }
 
-    // Summary line
-    outputLines.push('---');
-    const parts = [`${totalMatchCount} match${totalMatchCount !== 1 ? 'es' : ''}`];
-    parts.push(`across ${filesWithMatches.size} file${filesWithMatches.size !== 1 ? 's' : ''}`);
+    // Summary line — placed at the top so it's always visible after truncation
+    const summaryParts = [`${totalMatchCount} match${totalMatchCount !== 1 ? 'es' : ''}`];
+    summaryParts.push(`across ${filesWithMatches.size} file${filesWithMatches.size !== 1 ? 's' : ''}`);
     if (truncated) {
-      parts.push(`(truncated at ${GLOBAL_CAP})`);
+      summaryParts.push(`(truncated at ${GLOBAL_CAP})`);
     }
-    outputLines.push(parts.join(' '));
+    const summary = summaryParts.join(' ');
+    outputLines.unshift(summary, '---');
 
-    return applyTokenLimit(outputLines.join('\n'), context?.maxOutputTokens, 'end');
+    return await applyTokenLimit(outputLines.join('\n'), context?.maxOutputTokens, 'end');
   },
 });

@@ -131,14 +131,14 @@ async function executeCommand(input: Record<string, any>, context: any) {
 
     if (!result.success) {
       const parts = [
-        truncateOutput(result.stdout, tail, tokenLimit, tokenFrom),
-        truncateOutput(result.stderr, tail, tokenLimit, tokenFrom),
+        await truncateOutput(result.stdout, tail, tokenLimit, tokenFrom),
+        await truncateOutput(result.stderr, tail, tokenLimit, tokenFrom),
       ].filter(Boolean);
       parts.push(`Exit code: ${result.exitCode}`);
       return parts.join('\n');
     }
 
-    return truncateOutput(result.stdout, tail, tokenLimit, tokenFrom) || '(no output)';
+    return (await truncateOutput(result.stdout, tail, tokenLimit, tokenFrom)) || '(no output)';
   } catch (error) {
     await context?.writer?.custom({
       type: 'data-sandbox-exit',
@@ -150,8 +150,8 @@ async function executeCommand(input: Record<string, any>, context: any) {
       },
     });
     const parts = [
-      truncateOutput(stdout, tail, tokenLimit, tokenFrom),
-      truncateOutput(stderr, tail, tokenLimit, tokenFrom),
+      await truncateOutput(stdout, tail, tokenLimit, tokenFrom),
+      await truncateOutput(stderr, tail, tokenLimit, tokenFrom),
     ].filter(Boolean);
     const errorMessage = error instanceof Error ? error.message : String(error);
     parts.push(`Error: ${errorMessage}`);

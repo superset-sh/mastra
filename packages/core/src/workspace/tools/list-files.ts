@@ -59,6 +59,6 @@ Examples:
       pattern: pattern || undefined,
     });
 
-    return applyTokenLimit(`${result.tree}\n\n${result.summary}`, context?.maxOutputTokens, 'end');
+    return await applyTokenLimit(`${result.tree}\n\n${result.summary}`, context?.maxOutputTokens, 'end');
   },
 });

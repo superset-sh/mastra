@@ -39,7 +39,7 @@ export const readFileTool = createTool({
     const tokenLimit = context?.maxOutputTokens;
 
     if (!isTextEncoding) {
-      return applyTokenLimit(
+      return await applyTokenLimit(
         `${stat.path} (${stat.size} bytes, ${effectiveEncoding})\n${fullContent}`,
         tokenLimit,
         'end',
@@ -47,7 +47,7 @@ export const readFileTool = createTool({
     }
 
     if (typeof fullContent !== 'string') {
-      return applyTokenLimit(
+      return await applyTokenLimit(
         `${stat.path} (${stat.size} bytes, base64)\n${fullContent.toString('base64')}`,
         tokenLimit,
         'end',
@@ -69,6 +69,6 @@ export const readFileTool = createTool({
       header = `${stat.path} (${stat.size} bytes)`;
     }
 
-    return applyTokenLimit(`${header}\n${formattedContent}`, tokenLimit, 'end');
+    return await applyTokenLimit(`${header}\n${formattedContent}`, tokenLimit, 'end');
   },
 });

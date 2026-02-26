@@ -1,3 +1,5 @@
+import { getTiktoken } from '../../utils/tiktoken';
+
 /** Default number of lines to return (tail). */
 export const DEFAULT_TAIL_LINES = 200;
 
@@ -6,12 +8,16 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 3_000;
 
 /**
  * Estimate the number of tokens in a string using a word-count heuristic.
- * Uses `words * 1.3` which is a reasonable approximation for English text and code.
+ * Sync fallback — use when async tiktoken init isn't practical.
  */
 export function estimateTokens(text: string): number {
   const words = text.split(/\s+/).filter(Boolean).length;
   return Math.ceil(words * 1.3);
 }
+
+// ---------------------------------------------------------------------------
+// ANSI stripping
+// ---------------------------------------------------------------------------
 
 /**
  * Strip ANSI escape codes from text.
@@ -42,6 +48,10 @@ export function sandboxToModelOutput(output: unknown): unknown {
   return output;
 }
 
+// ---------------------------------------------------------------------------
+// Tail (line-based truncation)
+// ---------------------------------------------------------------------------
+
 /**
  * Return the last N lines of output, similar to `tail -n`.
  * - `n > 0`: last N lines
@@ -61,22 +71,29 @@ export function applyTail(output: string, tail: number | null | undefined): stri
   return `[showing last ${n} of ${lines.length} lines]\n${body}`;
 }
 
+// ---------------------------------------------------------------------------
+// Token-based truncation (uses tiktoken)
+// ---------------------------------------------------------------------------
+
 /**
- * Token-based output limit. Truncates output to fit within an estimated token budget.
+ * Token-based output limit. Truncates output to fit within a token budget.
+ * Uses tiktoken for accurate token counting.
  *
  * @param output - The text to truncate
- * @param limit - Maximum estimated tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
+ * @param limit - Maximum tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
  * @param from - Which end to truncate from:
  *   - `'start'` (default): Remove lines from the start, keep the end
  *   - `'end'`: Remove lines from the end, keep the start
  */
-export function applyTokenLimit(
+export async function applyTokenLimit(
   output: string,
   limit: number = DEFAULT_MAX_OUTPUT_TOKENS,
   from: 'start' | 'end' = 'start',
-): string {
+): Promise<string> {
   if (!output) return output;
-  const tokens = estimateTokens(output);
+
+  const tiktoken = await getTiktoken();
+  const tokens = tiktoken.encode(output).length;
   if (tokens <= limit) return output;
 
   const trailingNewline = output.endsWith('\n');
@@ -88,7 +105,7 @@ export function applyTokenLimit(
   if (from === 'start') {
     // Keep the end — iterate backwards
     for (let i = lines.length - 1; i >= 0; i--) {
-      const lineTokens = estimateTokens(lines[i]!);
+      const lineTokens = tiktoken.encode(lines[i]!).length;
       if (keptTokens + lineTokens > limit && kept.length > 0) break;
       kept.unshift(lines[i]!);
       keptTokens += lineTokens;
@@ -96,7 +113,7 @@ export function applyTokenLimit(
   } else {
     // Keep the start — iterate forwards
     for (let i = 0; i < lines.length; i++) {
-      const lineTokens = estimateTokens(lines[i]!);
+      const lineTokens = tiktoken.encode(lines[i]!).length;
       if (keptTokens + lineTokens > limit && kept.length > 0) break;
       kept.push(lines[i]!);
       keptTokens += lineTokens;
@@ -107,25 +124,28 @@ export function applyTokenLimit(
   const body = kept.join('\n') + (trailingNewline && from === 'start' ? '\n' : '');
   const position = from === 'start' ? 'last' : 'first';
   return from === 'start'
-    ? `[output truncated: showing ${position} ~${keptTokens} of ~${tokens} estimated tokens]\n${body}`
-    : `${body}\n[output truncated: showing ${position} ~${keptTokens} of ~${tokens} estimated tokens]`;
+    ? `[output truncated: showing ${position} ~${keptTokens} of ~${tokens} tokens]\n${body}`
+    : `${body}\n[output truncated: showing ${position} ~${keptTokens} of ~${tokens} tokens]`;
 }
 
 /**
  * Head+tail sandwich truncation. Keeps lines from both the start and end
  * of the output, with a truncation notice in the middle.
+ * Uses tiktoken for accurate token counting.
  *
  * @param output - The text to truncate
- * @param limit - Maximum estimated tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
+ * @param limit - Maximum tokens (default: DEFAULT_MAX_OUTPUT_TOKENS)
  * @param headRatio - Fraction of the token budget to allocate to the head (default: 0.1 = 10%)
  */
-export function applyTokenLimitSandwich(
+export async function applyTokenLimitSandwich(
   output: string,
   limit: number = DEFAULT_MAX_OUTPUT_TOKENS,
   headRatio: number = 0.1,
-): string {
+): Promise<string> {
   if (!output) return output;
-  const tokens = estimateTokens(output);
+
+  const tiktoken = await getTiktoken();
+  const tokens = tiktoken.encode(output).length;
   if (tokens <= limit) return output;
 
   const trailingNewline = output.endsWith('\n');
@@ -138,7 +158,7 @@ export function applyTokenLimitSandwich(
   const headLines: string[] = [];
   let headTokens = 0;
   for (let i = 0; i < lines.length; i++) {
-    const lineTokens = estimateTokens(lines[i]!);
+    const lineTokens = tiktoken.encode(lines[i]!).length;
     if (headTokens + lineTokens > headBudget && headLines.length > 0) break;
     headLines.push(lines[i]!);
     headTokens += lineTokens;
@@ -148,7 +168,7 @@ export function applyTokenLimitSandwich(
   const tailLines: string[] = [];
   let tailTokens = 0;
   for (let i = lines.length - 1; i >= headLines.length; i--) {
-    const lineTokens = estimateTokens(lines[i]!);
+    const lineTokens = tiktoken.encode(lines[i]!).length;
     if (tailTokens + lineTokens > tailBudget && tailLines.length > 0) break;
     tailLines.unshift(lines[i]!);
     tailTokens += lineTokens;
@@ -159,18 +179,18 @@ export function applyTokenLimitSandwich(
   const omitted = lines.length - headLines.length - tailLines.length;
   const head = headLines.join('\n');
   const tail = tailLines.join('\n') + (trailingNewline ? '\n' : '');
-  return `${head}\n[...${omitted} lines truncated — showing first ~${headTokens} + last ~${tailTokens} of ~${tokens} estimated tokens...]\n${tail}`;
+  return `${head}\n[...${omitted} lines truncated — showing first ~${headTokens} + last ~${tailTokens} of ~${tokens} tokens...]\n${tail}`;
 }
 
 /**
  * Apply both tail (line-based) and token limit (safety net) to output.
  */
-export function truncateOutput(
+export async function truncateOutput(
   output: string,
   tail?: number | null,
   tokenLimit?: number,
   tokenFrom?: 'start' | 'end' | 'sandwich',
-): string {
+): Promise<string> {
   const tailed = applyTail(output, tail);
   if (tokenFrom === 'sandwich') {
     return applyTokenLimitSandwich(tailed, tokenLimit);
