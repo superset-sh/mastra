@@ -2106,17 +2106,397 @@ const tui = new MastraTUI({ harness, hookManager, authStorage, mcpManager });
 tui.run();
 ```
 
-This means the Harness — with its 35+ event types, display state, tool approvals, message queueing, mode switching, and thread management — can only be driven by code running in the same process. No web UI, no mobile app, no remote CLI, no multi-client access.
+The TUI calls ~30 distinct Harness methods across its codebase. That means the Harness — with its 35+ event types, display state, tool approvals, message queueing, mode switching, and thread management — can only be driven by code running in the same process. No web UI, no mobile app, no remote CLI, no multi-client access.
 
-Building a transport layer (WebSocket + SSE + REST control API) turns the Harness from a "TUI-only primitive" into a "platform primitive" that any client can drive. Every gap that follows (channel adapters, debouncing, queue modes) benefits from this because they all produce events that need to reach remote consumers.
-
-**What to build**: A `HarnessTransport` that:
-1. Subscribes to Harness events and streams them over WebSocket/SSE
-2. Exposes Harness control methods (`sendMessage`, `steer`, `followUp`, `abort`, `approve`, `switchMode`, `switchModel`, etc.) as REST endpoints or WebSocket request frames
-3. Handles authentication (bearer token, session management)
-4. Supports multiple concurrent clients
+Building a transport layer turns the Harness from a "TUI-only primitive" into a "platform primitive" that any client can drive. Every gap that follows (channel adapters, debouncing, queue modes) benefits from this because they all produce events that need to reach remote consumers.
 
 **Unlocks**: Web UIs, mobile apps, desktop apps, remote access, multi-client, the entire OpenClaw multi-client model. Also makes the Harness testable from integration tests without spinning up a TUI.
+
+##### The Exact API Surface
+
+Auditing every Harness call in mastracode's TUI reveals three categories:
+
+**1. Event stream (server → client)** — 35+ typed events:
+
+```
+agent_start, agent_end
+message_start, message_update, message_end
+tool_start, tool_end, tool_update, tool_approval_required
+tool_input_start, tool_input_delta, tool_input_end
+shell_output
+ask_question, plan_approval_required, plan_approved
+subagent_start, subagent_text_delta, subagent_tool_start, subagent_tool_end, subagent_end
+mode_changed, model_changed, thread_changed, thread_created, state_changed
+usage_update, task_updated, display_state_changed
+om_status, om_observation_start, om_observation_end, om_reflection_start, om_reflection_end
+om_buffering_start, om_buffering_end, om_activation, om_model_changed
+workspace_status_changed, workspace_ready, workspace_error
+info, error, follow_up_queued
+```
+
+During streaming, `message_update` fires on every token — potentially hundreds per second. The transport must handle this without backpressure issues.
+
+**2. Control methods (client → server, mutating)**:
+
+| Method | TUI Usage | Notes |
+|---|---|---|
+| `sendMessage({ content, images? })` | Primary interaction | Starts an agent turn |
+| `steer({ content })` | Mid-stream redirection | Aborts + resends with new instruction |
+| `followUp({ content })` | Queue for next turn | Used while agent is running |
+| `abort()` | Cancel operation | Immediate abort via AbortController |
+| `respondToToolApproval({ decision })` | Approve/decline/always-allow | Three decision types |
+| `respondToQuestion({ questionId, answer })` | Answer agent questions | Unblocks suspended agent |
+| `respondToPlanApproval({ planId, response })` | Accept/reject plans | Triggers mode switch on approval |
+| `switchMode({ modeId })` | Change agent personality | Preserves thread context |
+| `switchModel({ modelId, scope?, modeId? })` | Change LLM | Scoped to thread/mode/global |
+| `createThread({ title? })` | New conversation | Auto-selects the new thread |
+| `switchThread({ threadId })` | Change conversation | Loads thread state |
+| `renameThread({ title })` | Update thread title | |
+| `setState(updates)` | Update harness state | yolo, thinkingLevel, notifications, etc. |
+| `setThreadSetting({ key, value })` | Per-thread settings | Persisted in thread metadata |
+| `setPermissionForCategory({ category, policy })` | Set category policies | allow/ask/deny |
+| `setPermissionForTool({ toolName, policy })` | Set tool policies | Per-tool overrides |
+| `grantSessionCategory({ category })` | Session-level grant | Lasts until session ends |
+| `grantSessionTool({ toolName })` | Session-level grant | Per-tool |
+| `switchObserverModel({ modelId })` | Change OM observer | |
+| `switchReflectorModel({ modelId })` | Change OM reflector | |
+| `setSubagentModelId({ modelId, agentType? })` | Change subagent model | Per-type or global |
+
+**3. Query methods (client → server, read-only)**:
+
+| Method | TUI Usage | Notes |
+|---|---|---|
+| `getState()` | Read harness state | yolo, projectPath, tasks, thinkingLevel, etc. |
+| `getDisplayState()` | Canonical UI snapshot | isRunning, activeTools, pendingApproval, tasks, tokenUsage, OM progress |
+| `isRunning()` | Check if agent is active | Guards steer vs sendMessage |
+| `listModes()` | Available modes | For mode picker |
+| `getCurrentModeId()` | Current mode | For status line |
+| `getCurrentModelId()` | Current model ID | For status line |
+| `getModelName()` | Formatted model name | Display-friendly |
+| `listAvailableModels()` | All models + auth status | For model picker |
+| `getCurrentModelAuthStatus()` | Auth check for current model | |
+| `listThreads({ allResources? })` | All threads | For thread picker |
+| `listMessages({ limit? })` | Messages for current thread | For history rendering |
+| `getSession()` | Session info | threadId, modeId, threads |
+| `getPermissionRules()` | Current permission config | For /permissions display |
+| `getSessionGrants()` | Active session grants | |
+| `getFollowUpCount()` | Pending follow-ups | |
+| `getTokenUsage()` | Token stats | For /cost display |
+| `loadOMProgress()` | Load OM state from storage | |
+
+##### Design Decisions
+
+**1. DisplayState serialization**: `HarnessDisplayState` contains four `Map<string, T>` fields (`activeTools`, `toolInputBuffers`, `activeSubagents`, `modifiedFiles`). Maps don't serialize to JSON. The transport needs to convert these to `Record<string, T>` or `Array<[string, T]>` when sending over the wire. This is a one-time conversion on read — the internal representation stays as Maps.
+
+**2. Protocol choice**: Two viable approaches, potentially offered together:
+
+- **WebSocket** — Bidirectional. Single connection handles both event streaming and control commands. Lower latency. Natural fit for request/response patterns (tool approvals, questions). Matches OpenClaw's protocol.
+
+- **SSE + REST** — Events stream over SSE, control via REST POST endpoints. Simpler to implement, works through HTTP proxies/CDNs, easier to debug. But two separate connections.
+
+Recommendation: build WebSocket first (it's the more complete model), add SSE as a read-only fallback for environments where WebSocket isn't available.
+
+**3. Event backpressure**: During streaming, `message_update` events fire per-token. Options:
+- **No batching** (WebSocket can handle it — each event is a small JSON frame)
+- **Configurable batching** (aggregate `message_update` events over a 16ms window for 60fps-equivalent updates)
+- **DisplayState polling** (clients poll `getDisplayState()` on an interval instead of processing raw events — simpler but higher latency)
+
+**4. Multi-client**: Should multiple clients connect simultaneously?
+
+- **Read-many, write-one**: All clients receive events, only one can issue control commands. Simple, avoids conflicts.
+- **Read-many, write-many**: All clients can issue commands. Last-write-wins. More flexible but needs conflict resolution for things like tool approvals.
+- **Role-based**: Like OpenClaw's `operator` vs `node` roles. Operators can control, nodes provide capabilities.
+
+Recommendation: start with read-many, write-many (simplest to implement — the Harness already handles single-operation-at-a-time internally via `isRunning()`).
+
+**5. Reconnection**: When a client disconnects and reconnects, it needs to catch up. `getDisplayState()` provides a full snapshot, and `listMessages()` provides history. The reconnection flow:
+1. Client connects
+2. Server sends `getDisplayState()` snapshot + `getState()` + `getSession()`
+3. Client renders from snapshot
+4. Subsequent events arrive in real-time
+
+**6. Where this lives**: Three options:
+
+| Location | Pros | Cons |
+|---|---|---|
+| `packages/core/src/harness/transport/` | Co-located with Harness, no new package | Adds server dependency to core |
+| `packages/server/src/harness/` | Natural home for HTTP/WS concerns | Couples to server adapter |
+| **`packages/harness-transport/`** (new package) | Clean separation, optional dependency | New package to maintain |
+
+Recommendation: **`packages/harness-transport/`** as a new package. It depends on `@mastra/core` (for Harness types) and `hono` (for HTTP/WS). Consumers install it only if they want remote access. This matches the pattern of `@mastra/memory`, `@mastra/mcp`, etc. — optional packages that compose with core.
+
+##### Implementation Sketch
+
+```typescript
+// packages/harness-transport/src/index.ts
+
+import type { Harness, HarnessEvent, HarnessDisplayState } from '@mastra/core/harness';
+
+interface HarnessTransportConfig {
+  harness: Harness;
+  auth?: {
+    validateToken: (token: string) => Promise<boolean>;
+  };
+  // Optional: batch message_update events for performance
+  batchUpdatesMs?: number;
+}
+
+class HarnessTransport {
+  private harness: Harness;
+  private clients = new Set<TransportClient>();
+
+  constructor(config: HarnessTransportConfig) {
+    this.harness = config.harness;
+
+    // Bridge: Harness events → all connected clients
+    this.harness.subscribe((event) => {
+      const serialized = this.serializeEvent(event);
+      for (const client of this.clients) {
+        client.send(serialized);
+      }
+    });
+  }
+
+  // Returns a Hono app that can be mounted on any server
+  getApp(): Hono {
+    const app = new Hono();
+
+    // WebSocket — bidirectional event stream + control
+    app.get('/ws', upgradeWebSocket((c) => ({
+      onOpen: (_, ws) => {
+        const client = new WebSocketClient(ws);
+        this.clients.add(client);
+        // Send initial state snapshot
+        client.send(this.serializeSnapshot());
+      },
+      onMessage: async (event, ws) => {
+        const frame = JSON.parse(event.data.toString());
+        const result = await this.handleCommand(frame);
+        ws.send(JSON.stringify({ type: 'res', id: frame.id, ...result }));
+      },
+      onClose: (_, ws) => {
+        this.removeClient(ws);
+      },
+    })));
+
+    // SSE — read-only event stream
+    app.get('/events', (c) => {
+      return streamSSE(c, async (stream) => {
+        // Send initial snapshot
+        stream.writeSSE({
+          event: 'snapshot',
+          data: JSON.stringify(this.getSnapshot()),
+        });
+
+        const client = new SSEClient(stream);
+        this.clients.add(client);
+
+        stream.onAbort(() => this.clients.delete(client));
+        await new Promise(() => {}); // Keep alive
+      });
+    });
+
+    // REST — control commands
+    app.post('/send', async (c) => {
+      const body = await c.req.json();
+      await this.harness.sendMessage(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/steer', async (c) => {
+      const body = await c.req.json();
+      await this.harness.steer(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/followup', async (c) => {
+      const body = await c.req.json();
+      await this.harness.followUp(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/abort', async (c) => {
+      this.harness.abort();
+      return c.json({ ok: true });
+    });
+
+    app.post('/approve', async (c) => {
+      const body = await c.req.json();
+      this.harness.respondToToolApproval(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/answer', async (c) => {
+      const body = await c.req.json();
+      this.harness.respondToQuestion(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/plan-response', async (c) => {
+      const body = await c.req.json();
+      await this.harness.respondToPlanApproval(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/mode', async (c) => {
+      const body = await c.req.json();
+      await this.harness.switchMode(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/model', async (c) => {
+      const body = await c.req.json();
+      await this.harness.switchModel(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/state', async (c) => {
+      const body = await c.req.json();
+      await this.harness.setState(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/threads', async (c) => {
+      const body = await c.req.json();
+      const thread = await this.harness.createThread(body);
+      return c.json(thread);
+    });
+
+    app.post('/threads/switch', async (c) => {
+      const body = await c.req.json();
+      await this.harness.switchThread(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/permissions/category', async (c) => {
+      const body = await c.req.json();
+      this.harness.setPermissionForCategory(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/permissions/tool', async (c) => {
+      const body = await c.req.json();
+      this.harness.setPermissionForTool(body);
+      return c.json({ ok: true });
+    });
+
+    app.post('/permissions/grant-category', async (c) => {
+      const body = await c.req.json();
+      this.harness.grantSessionCategory(body);
+      return c.json({ ok: true });
+    });
+
+    // Read-only queries
+    app.get('/state', (c) => c.json(this.harness.getState()));
+    app.get('/display-state', (c) => c.json(this.serializeDisplayState()));
+    app.get('/session', async (c) => c.json(await this.harness.getSession()));
+    app.get('/modes', (c) => c.json(this.harness.listModes().map(m => ({
+      id: m.id, name: m.name, default: m.default, color: m.color,
+    }))));
+    app.get('/models', async (c) => c.json(await this.harness.listAvailableModels()));
+    app.get('/threads', async (c) => {
+      const allResources = c.req.query('allResources') === 'true';
+      return c.json(await this.harness.listThreads({ allResources }));
+    });
+    app.get('/messages', async (c) => {
+      const limit = parseInt(c.req.query('limit') ?? '40');
+      return c.json(await this.harness.listMessages({ limit }));
+    });
+    app.get('/permissions', (c) => c.json(this.harness.getPermissionRules()));
+    app.get('/running', (c) => c.json({ running: this.harness.isRunning() }));
+
+    return app;
+  }
+
+  private serializeDisplayState(): Record<string, unknown> {
+    const ds = this.harness.getDisplayState();
+    return {
+      ...ds,
+      // Convert Maps to plain objects for JSON serialization
+      activeTools: Object.fromEntries(ds.activeTools),
+      toolInputBuffers: Object.fromEntries(ds.toolInputBuffers),
+      activeSubagents: Object.fromEntries(ds.activeSubagents),
+      modifiedFiles: Object.fromEntries(
+        [...ds.modifiedFiles].map(([k, v]) => [k, { ...v, firstModified: v.firstModified.toISOString() }])
+      ),
+    };
+  }
+
+  private serializeEvent(event: HarnessEvent): string {
+    if (event.type === 'display_state_changed') {
+      return JSON.stringify({
+        ...event,
+        displayState: this.serializeDisplayState(),
+      });
+    }
+    return JSON.stringify(event);
+  }
+
+  private getSnapshot() {
+    return {
+      state: this.harness.getState(),
+      displayState: this.serializeDisplayState(),
+      modeId: this.harness.getCurrentModeId(),
+      modelId: this.harness.getCurrentModelId(),
+      threadId: this.harness.getCurrentThreadId(),
+      running: this.harness.isRunning(),
+    };
+  }
+}
+```
+
+##### Usage — Mounting on a Server
+
+```typescript
+import { Harness } from '@mastra/core/harness';
+import { HarnessTransport } from '@mastra/harness-transport';
+import { Hono } from 'hono';
+import { serve } from '@hono/node-server';
+
+const harness = new Harness({ /* ... */ });
+await harness.init();
+await harness.selectOrCreateThread();
+
+const transport = new HarnessTransport({ harness });
+
+const app = new Hono();
+app.route('/harness', transport.getApp());
+
+serve({ fetch: app.fetch, port: 3000 });
+// WebSocket: ws://localhost:3000/harness/ws
+// SSE:       http://localhost:3000/harness/events
+// REST:      http://localhost:3000/harness/send, /steer, /abort, etc.
+```
+
+##### Usage — Client Side
+
+```typescript
+// Minimal client that drives the Harness over WebSocket
+const ws = new WebSocket('ws://localhost:3000/harness/ws');
+let reqId = 0;
+
+ws.onmessage = (event) => {
+  const frame = JSON.parse(event.data);
+  if (frame.type === 'event') {
+    handleEvent(frame.event, frame.payload);
+  } else if (frame.type === 'res') {
+    resolveRequest(frame.id, frame);
+  } else if (frame.type === 'snapshot') {
+    initializeUI(frame);
+  }
+};
+
+function send(method: string, params: unknown): Promise<unknown> {
+  const id = String(++reqId);
+  ws.send(JSON.stringify({ type: 'req', id, method, params }));
+  return waitForResponse(id);
+}
+
+// Drive the Harness from anywhere
+await send('sendMessage', { content: 'Hello from the web UI' });
+await send('switchMode', { modeId: 'coding' });
+await send('approve', { decision: 'approve' });
+```
 
 ---
 
