@@ -96,8 +96,15 @@ export function createOpenAIWebSocketFetch(options?: CreateOpenAIWebSocketFetchO
     const headers = normalizeHeaders(init.headers);
     const authorization = headers['authorization'] ?? '';
 
-    const connection = await getConnection(authorization, headers);
+    // Acquire the busy lock before awaiting to prevent races
     busy = true;
+    let connection: WebSocket;
+    try {
+      connection = await getConnection(authorization, headers);
+    } catch (err) {
+      busy = false;
+      throw err;
+    }
 
     const { stream: _stream, ...requestBody } = body;
     const encoder = new TextEncoder();
