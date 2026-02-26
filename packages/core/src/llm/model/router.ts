@@ -49,7 +49,8 @@ function getOpenAITransport(providerOptions?: ProviderOptions): {
 function isOpenAIBaseUrl(baseURL?: string): boolean {
   if (!baseURL) return true;
   try {
-    return new URL(baseURL).host.includes(OPENAI_API_HOST);
+    const hostname = new URL(baseURL).hostname;
+    return hostname === OPENAI_API_HOST;
   } catch {
     return false;
   }
