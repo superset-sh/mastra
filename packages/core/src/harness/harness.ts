@@ -1058,10 +1058,10 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
    */
   async sendMessage({
     content,
-    images,
+    files,
   }: {
     content: string;
-    images?: Array<{ data: string; mimeType: string }>;
+    files?: Array<{ data: string; mediaType: string; filename?: string }>;
   }): Promise<void> {
     if (!this.currentThreadId) {
       const thread = await this.createThread();
@@ -1091,16 +1091,12 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       streamOptions.toolsets = await this.buildToolsets(requestContext);
 
       let messageInput: string | Record<string, unknown> = content;
-      if (images?.length) {
+      if (files?.length) {
         messageInput = {
           role: 'user',
           content: [
             { type: 'text', text: content },
-            ...images.map((img: { data: string; mimeType: string }) => ({
-              type: 'file',
-              data: img.data,
-              mediaType: img.mimeType,
-            })),
+            ...files.map(f => ({ type: 'file' as const, ...f })),
           ],
         };
       }
@@ -1290,6 +1286,14 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
           });
           break;
         }
+        case 'file':
+          content.push({
+            type: 'file',
+            data: typeof part.data === 'string' ? part.data : '',
+            mediaType: (part as { mediaType?: string }).mediaType ?? 'application/octet-stream',
+            ...((part as { filename?: string }).filename ? { filename: (part as { filename?: string }).filename } : {}),
+          });
+          break;
         // Skip other part types (step-start, data-om-status, etc.)
       }
     }
