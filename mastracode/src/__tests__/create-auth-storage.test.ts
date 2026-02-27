@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createAuthStorage } from '../index.js';
-import { getAuthStorage as getClaudeAuthStorage } from '../providers/claude-max.js';
-import { getAuthStorage as getOpenAIAuthStorage } from '../providers/openai-codex.js';
+import { getAuthStorage as getClaudeAuthStorage, setAuthStorage as setClaudeAuthStorage } from '../providers/claude-max.js';
+import { getAuthStorage as getOpenAIAuthStorage, setAuthStorage as setOpenAIAuthStorage } from '../providers/openai-codex.js';
 
 describe('createAuthStorage', () => {
+  afterEach(() => {
+    setClaudeAuthStorage(undefined as any);
+    setOpenAIAuthStorage(undefined as any);
+  });
+
   it('wires a shared auth storage instance to provider modules', () => {
     const authStorage = createAuthStorage();
 

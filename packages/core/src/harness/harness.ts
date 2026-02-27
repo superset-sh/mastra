@@ -1101,10 +1101,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       if (files?.length) {
         messageInput = {
           role: 'user',
-          content: [
-            { type: 'text', text: content },
-            ...files.map(f => ({ type: 'file' as const, ...f })),
-          ],
+          content: [{ type: 'text', text: content }, ...files.map(f => ({ type: 'file' as const, ...f }))],
         };
       }
 
@@ -1293,14 +1290,18 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
           });
           break;
         }
-        case 'file':
+        case 'file': {
+          if (typeof part.data !== 'string') {
+            break;
+          }
           content.push({
             type: 'file',
-            data: typeof part.data === 'string' ? part.data : '',
+            data: part.data,
             mediaType: (part as { mediaType?: string }).mediaType ?? 'application/octet-stream',
             ...((part as { filename?: string }).filename ? { filename: (part as { filename?: string }).filename } : {}),
           });
           break;
+        }
         // Skip other part types (step-start, data-om-status, etc.)
       }
     }
