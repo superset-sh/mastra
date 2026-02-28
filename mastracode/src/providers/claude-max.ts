@@ -153,6 +153,13 @@ export function opencodeClaudeMaxProvider(modelId: string = 'claude-sonnet-4-202
     // Reload from disk to handle multi-instance refresh
     authStorage.reload();
 
+    const storedCred = authStorage.get('anthropic');
+    if (storedCred?.type === 'api_key') {
+      throw new Error(
+        'Anthropic API key credential is configured, but Claude Max OAuth provider requires OAuth credentials.',
+      );
+    }
+
     // Get access token (auto-refreshes if expired)
     const accessToken = await authStorage.getApiKey('anthropic');
 

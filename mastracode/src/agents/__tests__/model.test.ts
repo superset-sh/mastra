@@ -68,13 +68,30 @@ describe('resolveModel', () => {
   });
 
   describe('anthropic/* models', () => {
-    it('prefers Claude Max OAuth when logged in, even if API key is present', () => {
+    it('prefers Claude Max OAuth when stored OAuth credential exists, even if API key is present', () => {
       process.env.ANTHROPIC_API_KEY = 'sk-test-key-123';
-      mockAuthStorageInstance.isLoggedIn.mockImplementation((p: string) => p === 'anthropic');
+      mockAuthStorageInstance.get.mockReturnValue({
+        type: 'oauth',
+        access: 'oauth-access-token',
+        refresh: 'oauth-refresh-token',
+        expires: Date.now() + 60_000,
+      });
 
       resolveModel('anthropic/claude-sonnet-4-20250514');
 
       expect(opencodeClaudeMaxProvider).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    });
+
+    it('uses API key when stored credential is api_key, even if isLoggedIn reports true', () => {
+      mockAuthStorageInstance.isLoggedIn.mockImplementation((p: string) => p === 'anthropic');
+      mockAuthStorageInstance.get.mockReturnValue({ type: 'api_key', key: 'sk-stored-key-456' });
+
+      const result = resolveModel('anthropic/claude-sonnet-4-20250514') as Record<string, unknown>;
+
+      expect(result.__provider).toBe('anthropic-direct');
+      expect(result.__wrapped).toBe(true);
+      expect(result.modelId).toBe('claude-sonnet-4-20250514');
+      expect(opencodeClaudeMaxProvider).not.toHaveBeenCalled();
     });
 
     it('falls back to API key when not logged in via OAuth', () => {

@@ -81,7 +81,7 @@ function anthropicApiKeyProvider(modelId: string, apiKey: string): LanguageModel
  * Resolve a model ID to the correct provider instance.
  * Shared by the main agent, observer, and reflector.
  *
- * - For anthropic/* models: Prefers Claude Max OAuth, falls back to direct API key
+ * - For anthropic/* models: Uses stored OAuth credentials when present, otherwise direct API key
  * - For openai/* models with OAuth: Uses OpenAI Codex OAuth provider
  * - For moonshotai/* models: Uses Moonshot AI Anthropic-compatible endpoint
  * - For all other providers: Uses Mastra's model router (models.dev gateway)
@@ -106,10 +106,18 @@ export function resolveModel(
     })(modelId.substring('moonshotai/'.length));
   } else if (isAnthropicModel) {
     const bareModelId = modelId.substring('anthropic/'.length);
-    // Primary path: Claude Max OAuth
-    if (authStorage.isLoggedIn('anthropic')) {
+    const storedCred = authStorage.get('anthropic');
+
+    // Primary path: explicit OAuth credential
+    if (storedCred?.type === 'oauth') {
       return opencodeClaudeMaxProvider(bareModelId);
     }
+
+    // Secondary path: explicit stored API key credential
+    if (storedCred?.type === 'api_key' && storedCred.key.trim().length > 0) {
+      return anthropicApiKeyProvider(bareModelId, storedCred.key.trim());
+    }
+
     // Fallback: direct API key (env var or stored credential)
     const apiKey = getAnthropicApiKey();
     if (apiKey) {
