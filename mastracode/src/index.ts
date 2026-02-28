@@ -201,11 +201,23 @@ export async function createMastraCode(config?: MastraCodeConfig) {
   ];
 
   // Build lightweight provider access for resolving built-in packs at startup.
-  // OAuth providers are checked via authStorage, env-only providers via process.env.
-  // Also scan the full provider registry so any configured API key satisfies access checks.
+  // Anthropic/OpenAI use AuthStorage only; other providers use env API keys.
+  // Also scan the full provider registry so configured env API keys satisfy access checks.
+  const anthropicCred = authStorage.get('anthropic');
+  const openaiCred = authStorage.get('openai-codex');
   const startupAccess: ProviderAccess = {
-    anthropic: authStorage.isLoggedIn('anthropic') ? 'oauth' : process.env.ANTHROPIC_API_KEY ? 'apikey' : false,
-    openai: authStorage.isLoggedIn('openai-codex') ? 'oauth' : process.env.OPENAI_API_KEY ? 'apikey' : false,
+    anthropic:
+      anthropicCred?.type === 'oauth'
+        ? 'oauth'
+        : anthropicCred?.type === 'api_key' && anthropicCred.key.trim().length > 0
+          ? 'apikey'
+          : false,
+    openai:
+      openaiCred?.type === 'oauth'
+        ? 'oauth'
+        : openaiCred?.type === 'api_key' && openaiCred.key.trim().length > 0
+          ? 'apikey'
+          : false,
     cerebras: process.env.CEREBRAS_API_KEY ? 'apikey' : false,
     google: process.env.GOOGLE_GENERATIVE_AI_API_KEY ? 'apikey' : false,
     deepseek: process.env.DEEPSEEK_API_KEY ? 'apikey' : false,
@@ -215,6 +227,7 @@ export async function createMastraCode(config?: MastraCodeConfig) {
     const registry = PROVIDER_REGISTRY as Record<string, ProviderConfig>;
     for (const [provider, config] of Object.entries(registry)) {
       if (startupAccess[provider] && startupAccess[provider] !== false) continue; // Already enabled above
+      if (provider === 'anthropic' || provider === 'openai') continue;
       const envVars = config?.apiKeyEnvVar;
       const envVarList = Array.isArray(envVars) ? envVars : envVars ? [envVars] : [];
       if (envVarList.some(envVar => process.env[envVar])) {
@@ -285,6 +298,18 @@ export async function createMastraCode(config?: MastraCodeConfig) {
       const oauthId = PROVIDER_TO_OAUTH_ID[provider];
       if (oauthId && authStorage.isLoggedIn(oauthId)) {
         return true;
+      }
+      if (provider === 'anthropic') {
+        const cred = authStorage.get('anthropic');
+        if (cred?.type === 'api_key' && cred.key.trim().length > 0) {
+          return true;
+        }
+      }
+      if (provider === 'openai') {
+        const cred = authStorage.get('openai-codex');
+        if (cred?.type === 'api_key' && cred.key.trim().length > 0) {
+          return true;
+        }
       }
       return undefined;
     },
