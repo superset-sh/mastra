@@ -1151,6 +1151,7 @@ export type ProviderModelsMap = {
     'google/gemini-3-flash-preview',
     'google/gemini-3-pro-preview',
     'google/gemini-3.1-pro-preview',
+    'google/gemini-3.1-pro-preview-customtools',
     'google/gemma-2-9b-it',
     'google/gemma-3-12b-it',
     'google/gemma-3-12b-it:free',
