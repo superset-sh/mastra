@@ -138,7 +138,7 @@ export function opencodeClaudeMaxProvider(modelId: string = 'claude-sonnet-4-202
   // Test environment: use API key
   if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
     const anthropic = createAnthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY || 'test-api-key',
+      apiKey: 'test-api-key',
     });
     return wrapLanguageModel({
       model: anthropic(modelId),
