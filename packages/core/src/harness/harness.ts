@@ -1220,17 +1220,44 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
       let messageInput: string | Record<string, unknown> = content;
       if (files?.length) {
-        messageInput = {
-          role: 'user',
-          content: [
-            { type: 'text', text: content },
-            ...files.map(f => ({
+        const fileParts = await Promise.all(
+          files.map(async f => {
+            const isText = f.mediaType.startsWith('text/') || f.mediaType === 'application/json';
+            if (isText) {
+              let textContent: string;
+              if (f.data.startsWith('http://') || f.data.startsWith('https://')) {
+                try {
+                  const resp = await fetch(f.data);
+                  textContent = await resp.text();
+                } catch {
+                  textContent = f.data;
+                }
+              } else {
+                const base64Match = f.data.match(/^data:[^;]*;base64,(.*)$/);
+                if (base64Match) {
+                  try {
+                    textContent = Buffer.from(base64Match[1]!, 'base64').toString('utf-8');
+                  } catch {
+                    textContent = f.data;
+                  }
+                } else {
+                  textContent = f.data;
+                }
+              }
+              const label = f.filename ? `[File: ${f.filename}]` : '[Attached file]';
+              return { type: 'text' as const, text: `${label}\n\`\`\`\n${textContent}\n\`\`\`` };
+            }
+            return {
               type: 'file' as const,
               data: f.data,
               mimeType: f.mediaType,
               filename: f.filename,
-            })),
-          ],
+            };
+          }),
+        );
+        messageInput = {
+          role: 'user',
+          content: [{ type: 'text', text: content }, ...fileParts],
         };
       }
 
