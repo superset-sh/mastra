@@ -654,6 +654,9 @@ export class AIV5Adapter {
         if (part.providerOptions) {
           imageFilePart.providerMetadata = part.providerOptions;
         }
+        if ((imagePart as { filename?: string }).filename) {
+          (imageFilePart as Record<string, unknown>).filename = (imagePart as { filename?: string }).filename;
+        }
         mastraDBParts.push(imageFilePart);
         experimental_attachments.push({
           url: imageData,

@@ -1220,32 +1220,17 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
       let messageInput: string | Record<string, unknown> = content;
       if (files?.length) {
-        const fileParts = files.map(f => {
-          const isText = f.mediaType.startsWith('text/') || f.mediaType === 'application/json';
-          if (isText) {
-            let textContent = f.data;
-            // Decode data URI to plain text
-            const base64Match = f.data.match(/^data:[^;]*;base64,(.*)$/);
-            if (base64Match) {
-              try {
-                textContent = Buffer.from(base64Match[1]!, 'base64').toString('utf-8');
-              } catch {
-                // Fall through with raw data
-              }
-            }
-            const label = f.filename ? `[File: ${f.filename}]` : '[Attached file]';
-            return { type: 'text' as const, text: `${label}\n\`\`\`\n${textContent}\n\`\`\`` };
-          }
-          return {
-            type: 'file' as const,
-            data: f.data,
-            mimeType: f.mediaType,
-            filename: f.filename,
-          };
-        });
         messageInput = {
           role: 'user',
-          content: [{ type: 'text', text: content }, ...fileParts],
+          content: [
+            { type: 'text', text: content },
+            ...files.map(f => ({
+              type: 'file' as const,
+              data: f.data,
+              mimeType: f.mediaType,
+              filename: f.filename,
+            })),
+          ],
         };
       }
 
