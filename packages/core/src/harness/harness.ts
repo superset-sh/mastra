@@ -1220,29 +1220,41 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
 
       let messageInput: string | Record<string, unknown> = content;
       if (files?.length) {
-        const fileParts = files.map(f => {
-          const isText = f.mediaType.startsWith('text/') || f.mediaType === 'application/json';
-          if (isText) {
-            let textContent = f.data;
-            // Decode data URI to plain text
-            const base64Match = f.data.match(/^data:[^;]*;base64,(.*)$/);
-            if (base64Match) {
-              try {
-                textContent = Buffer.from(base64Match[1]!, 'base64').toString('utf-8');
-              } catch {
-                // Fall through with raw data
+        const fileParts = await Promise.all(
+          files.map(async f => {
+            const isText = f.mediaType.startsWith('text/') || f.mediaType === 'application/json';
+            if (isText) {
+              let textContent: string;
+              if (f.data.startsWith('http://') || f.data.startsWith('https://')) {
+                try {
+                  const resp = await fetch(f.data);
+                  textContent = await resp.text();
+                } catch {
+                  textContent = f.data;
+                }
+              } else {
+                const base64Match = f.data.match(/^data:[^;]*;base64,(.*)$/);
+                if (base64Match) {
+                  try {
+                    textContent = Buffer.from(base64Match[1]!, 'base64').toString('utf-8');
+                  } catch {
+                    textContent = f.data;
+                  }
+                } else {
+                  textContent = f.data;
+                }
               }
+              const label = f.filename ? `[File: ${f.filename}](${f.data})` : `[Attached file](${f.data})`;
+              return { type: 'text' as const, text: `${label}\n\`\`\`\n${textContent}\n\`\`\`` };
             }
-            const label = f.filename ? `[File: ${f.filename}]` : '[Attached file]';
-            return { type: 'text' as const, text: `${label}\n\`\`\`\n${textContent}\n\`\`\`` };
-          }
-          return {
-            type: 'file' as const,
-            data: f.data,
-            mimeType: f.mediaType,
-            filename: f.filename,
-          };
-        });
+            return {
+              type: 'file' as const,
+              data: f.data,
+              mimeType: f.mediaType,
+              filename: f.filename,
+            };
+          }),
+        );
         messageInput = {
           role: 'user',
           content: [{ type: 'text', text: content }, ...fileParts],
@@ -1360,7 +1372,34 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       switch (part.type) {
         case 'text':
           if (part.text) {
-            content.push({ type: 'text', text: part.text });
+            // Detect text parts that were converted from file attachments in sendMessage.
+            // Format: [File: filename](originalUrl)\n```\ncontent\n```
+            const fileAttachmentMatch = part.text.match(
+              /^\[(?:File: (.+?)|Attached file)\]\((.+?)\)\n```\n[\s\S]*?\n```$/,
+            );
+            if (fileAttachmentMatch) {
+              const filename = fileAttachmentMatch[1];
+              const originalUrl = fileAttachmentMatch[2]!;
+              const ext = filename?.split('.').pop()?.toLowerCase();
+              const mediaType =
+                ext === 'csv'
+                  ? 'text/csv'
+                  : ext === 'json'
+                    ? 'application/json'
+                    : ext === 'xml'
+                      ? 'application/xml'
+                      : ext === 'md'
+                        ? 'text/markdown'
+                        : 'text/plain';
+              content.push({
+                type: 'file',
+                data: originalUrl,
+                mediaType,
+                ...(filename ? { filename } : {}),
+              });
+            } else {
+              content.push({ type: 'text', text: part.text });
+            }
           }
           break;
         case 'reasoning':
@@ -1460,6 +1499,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
             data: imgData,
             mediaType:
               (part as { mimeType?: string }).mimeType ?? (part as { mediaType?: string }).mediaType ?? 'image/png',
+            ...((part as { filename?: string }).filename ? { filename: (part as { filename?: string }).filename } : {}),
           });
           break;
         }
