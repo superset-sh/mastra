@@ -1244,7 +1244,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
                   textContent = f.data;
                 }
               }
-              const label = f.filename ? `[File: ${f.filename}]` : '[Attached file]';
+              const label = f.filename ? `[File: ${f.filename}](${f.data})` : `[Attached file](${f.data})`;
               return { type: 'text' as const, text: `${label}\n\`\`\`\n${textContent}\n\`\`\`` };
             }
             return {
@@ -1372,7 +1372,34 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
       switch (part.type) {
         case 'text':
           if (part.text) {
-            content.push({ type: 'text', text: part.text });
+            // Detect text parts that were converted from file attachments in sendMessage.
+            // Format: [File: filename](originalUrl)\n```\ncontent\n```
+            const fileAttachmentMatch = part.text.match(
+              /^\[(?:File: (.+?)|Attached file)\]\((.+?)\)\n```\n[\s\S]*?\n```$/,
+            );
+            if (fileAttachmentMatch) {
+              const filename = fileAttachmentMatch[1];
+              const originalUrl = fileAttachmentMatch[2]!;
+              const ext = filename?.split('.').pop()?.toLowerCase();
+              const mediaType =
+                ext === 'csv'
+                  ? 'text/csv'
+                  : ext === 'json'
+                    ? 'application/json'
+                    : ext === 'xml'
+                      ? 'application/xml'
+                      : ext === 'md'
+                        ? 'text/markdown'
+                        : 'text/plain';
+              content.push({
+                type: 'file',
+                data: originalUrl,
+                mediaType,
+                ...(filename ? { filename } : {}),
+              });
+            } else {
+              content.push({ type: 'text', text: part.text });
+            }
           }
           break;
         case 'reasoning':
@@ -1472,6 +1499,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
             data: imgData,
             mediaType:
               (part as { mimeType?: string }).mimeType ?? (part as { mediaType?: string }).mediaType ?? 'image/png',
+            ...((part as { filename?: string }).filename ? { filename: (part as { filename?: string }).filename } : {}),
           });
           break;
         }
