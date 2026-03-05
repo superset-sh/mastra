@@ -1189,6 +1189,15 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
     tracingContext?: TracingContext;
     tracingOptions?: TracingOptions;
   }): Promise<void> {
+    console.info(
+      '\n🎉🎉🎉 MASTRACODE FILE SUPPORT IS ALIVE! 🎉🎉🎉\n' +
+        `  content: ${JSON.stringify(content?.slice(0, 80))}...\n` +
+        `  files: ${files?.length ?? 0} file(s) attached\n` +
+        (files
+          ?.map((f, i) => `    [${i}] ${f.filename ?? '(unnamed)'} (${f.mediaType}) data=${f.data?.slice(0, 60)}...`)
+          .join('\n') ?? '') +
+        '\n',
+    );
     if (!this.currentThreadId) {
       const thread = await this.createThread();
       this.currentThreadId = thread.id;
@@ -1239,7 +1248,7 @@ export class Harness<TState extends HarnessStateSchema = HarnessStateSchema> {
           return {
             type: 'file' as const,
             data: f.data,
-            mimeType: f.mediaType,
+            mediaType: f.mediaType,
             filename: f.filename,
           };
         });
