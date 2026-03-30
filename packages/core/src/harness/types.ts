@@ -465,7 +465,7 @@ export interface ActiveSubagentState {
   agentType: string;
   task: string;
   modelId?: string;
-  toolCalls: Array<{ name: string; isError: boolean }>;
+  toolCalls: Array<{ name: string; isError: boolean; args: Record<string, unknown> | null; result: string | null }>;
   textDelta: string;
   status: 'running' | 'completed' | 'error';
   durationMs?: number;

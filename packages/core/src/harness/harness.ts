@@ -2637,7 +2637,15 @@ export class Harness<TState = {}> {
       case 'subagent_tool_start': {
         const subAgent = ds.activeSubagents.get(event.toolCallId);
         if (subAgent) {
-          subAgent.toolCalls.push({ name: event.subToolName, isError: false });
+          subAgent.toolCalls.push({
+            name: event.subToolName,
+            isError: false,
+            args:
+              typeof event.subToolArgs === 'object' && event.subToolArgs !== null
+                ? (event.subToolArgs as Record<string, unknown>)
+                : null,
+            result: null,
+          });
         }
         break;
       }
@@ -2645,9 +2653,15 @@ export class Harness<TState = {}> {
       case 'subagent_tool_end': {
         const subTool = ds.activeSubagents.get(event.toolCallId);
         if (subTool) {
-          const tc = subTool.toolCalls.find(t => t.name === event.subToolName && !t.isError);
+          const tc = subTool.toolCalls.findLast(t => t.name === event.subToolName && t.result === null);
           if (tc) {
             tc.isError = event.isError;
+            tc.result =
+              event.subToolResult !== null && event.subToolResult !== undefined
+                ? typeof event.subToolResult === 'string'
+                  ? event.subToolResult
+                  : JSON.stringify(event.subToolResult)
+                : null;
           }
         }
         break;
