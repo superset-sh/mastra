@@ -86,6 +86,7 @@ export type ProviderModelsMap = {
     'gpt-5.2-chat-latest',
     'gpt-5.2-codex',
     'gpt-5.2-pro',
+    'gpt-5.3-chat-latest',
     'gpt-5.3-codex',
     'gpt-5.3-codex-spark',
     'gpt-5.4',
@@ -1737,7 +1738,7 @@ export type ProviderModelsMap = {
     'nousresearch/hermes-4-70b',
     'nvidia/nemotron-3-nano-30b-a3b:free',
     'nvidia/nemotron-3-super-120b-a12b',
-    'nvidia/nemotron-3-super-120b-a12b-free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
     'nvidia/nemotron-nano-12b-v2-vl:free',
     'nvidia/nemotron-nano-9b-v2',
     'nvidia/nemotron-nano-9b-v2:free',
@@ -2777,6 +2778,7 @@ export type ProviderModelsMap = {
     'mistral-medium-latest',
     'mistral-nemo',
     'mistral-small-2506',
+    'mistral-small-2603',
     'mistral-small-latest',
     'open-mistral-7b',
     'open-mixtral-8x22b',
@@ -3414,6 +3416,8 @@ export type ProviderModelsMap = {
     'zai-org/glm-4.7',
     'zai-org/glm-4.7-flash',
     'zai-org/glm-5',
+    'zai-org/glm-5.1',
+    'zai-org/glm-5.1:thinking',
     'zai-org/glm-5:thinking',
   ];
   readonly clarifai: readonly [
