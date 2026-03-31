@@ -461,11 +461,22 @@ export interface ActiveToolState {
 /**
  * State of an active subagent execution, tracked by the Harness for UI consumption.
  */
+export interface HarnessSubagentToolCall {
+  toolCallId: string | null;
+  name: string;
+  isError: boolean;
+  args: unknown | null;
+  result: string | null;
+}
+
+/**
+ * State of an active subagent execution, tracked by the Harness for UI consumption.
+ */
 export interface ActiveSubagentState {
   agentType: string;
   task: string;
   modelId?: string;
-  toolCalls: Array<{ name: string; isError: boolean; args: Record<string, unknown> | null; result: string | null }>;
+  toolCalls: HarnessSubagentToolCall[];
   textDelta: string;
   status: 'running' | 'completed' | 'error';
   durationMs?: number;
@@ -773,6 +784,7 @@ export type HarnessEvent =
       type: 'subagent_tool_start';
       toolCallId: string;
       agentType: string;
+      subToolCallId?: string;
       subToolName: string;
       subToolArgs: unknown;
     }
@@ -780,6 +792,7 @@ export type HarnessEvent =
       type: 'subagent_tool_end';
       toolCallId: string;
       agentType: string;
+      subToolCallId?: string;
       subToolName: string;
       subToolResult: unknown;
       isError: boolean;

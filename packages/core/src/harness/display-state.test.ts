@@ -586,12 +586,19 @@ describe('subagent lifecycle', () => {
       type: 'subagent_tool_start',
       toolCallId: 's1',
       agentType: 'explore',
+      subToolCallId: 'call-1',
       subToolName: 'read_file',
-      subToolArgs: {},
+      subToolArgs: { path: '/hello.txt' },
     });
     const sub = harness.getDisplayState().activeSubagents.get('s1')!;
     expect(sub.toolCalls).toHaveLength(1);
-    expect(sub.toolCalls[0]!.name).toBe('read_file');
+    expect(sub.toolCalls[0]).toEqual({
+      toolCallId: 'call-1',
+      name: 'read_file',
+      isError: false,
+      args: { path: '/hello.txt' },
+      result: null,
+    });
   });
 
   it('marks subagent tool error on subagent_tool_end', () => {
@@ -600,6 +607,7 @@ describe('subagent lifecycle', () => {
       type: 'subagent_tool_start',
       toolCallId: 's1',
       agentType: 'explore',
+      subToolCallId: 'call-1',
       subToolName: 'read_file',
       subToolArgs: {},
     });
@@ -607,12 +615,61 @@ describe('subagent lifecycle', () => {
       type: 'subagent_tool_end',
       toolCallId: 's1',
       agentType: 'explore',
+      subToolCallId: 'call-1',
       subToolName: 'read_file',
       subToolResult: 'err',
       isError: true,
     });
     const sub = harness.getDisplayState().activeSubagents.get('s1')!;
     expect(sub.toolCalls[0]!.isError).toBe(true);
+  });
+
+  it('matches repeated same-name subagent tool calls by subToolCallId', () => {
+    emit(harness, { type: 'subagent_start', toolCallId: 's1', agentType: 'explore', task: 't', modelId: 'm' });
+    emit(harness, {
+      type: 'subagent_tool_start',
+      toolCallId: 's1',
+      agentType: 'explore',
+      subToolCallId: 'read-1',
+      subToolName: 'read_file',
+      subToolArgs: { path: '/a.txt' },
+    });
+    emit(harness, {
+      type: 'subagent_tool_start',
+      toolCallId: 's1',
+      agentType: 'explore',
+      subToolCallId: 'read-2',
+      subToolName: 'read_file',
+      subToolArgs: { path: '/b.txt' },
+    });
+
+    emit(harness, {
+      type: 'subagent_tool_end',
+      toolCallId: 's1',
+      agentType: 'explore',
+      subToolCallId: 'read-1',
+      subToolName: 'read_file',
+      subToolResult: 'A',
+      isError: false,
+    });
+
+    const sub = harness.getDisplayState().activeSubagents.get('s1')!;
+    expect(sub.toolCalls).toEqual([
+      {
+        toolCallId: 'read-1',
+        name: 'read_file',
+        isError: false,
+        args: { path: '/a.txt' },
+        result: 'A',
+      },
+      {
+        toolCallId: 'read-2',
+        name: 'read_file',
+        isError: false,
+        args: { path: '/b.txt' },
+        result: null,
+      },
+    ]);
   });
 
   it('marks subagent as completed on subagent_end', () => {

@@ -2638,12 +2638,10 @@ export class Harness<TState = {}> {
         const subAgent = ds.activeSubagents.get(event.toolCallId);
         if (subAgent) {
           subAgent.toolCalls.push({
+            toolCallId: event.subToolCallId ?? null,
             name: event.subToolName,
             isError: false,
-            args:
-              typeof event.subToolArgs === 'object' && event.subToolArgs !== null
-                ? (event.subToolArgs as Record<string, unknown>)
-                : null,
+            args: event.subToolArgs ?? null,
             result: null,
           });
         }
@@ -2653,7 +2651,9 @@ export class Harness<TState = {}> {
       case 'subagent_tool_end': {
         const subTool = ds.activeSubagents.get(event.toolCallId);
         if (subTool) {
-          const tc = subTool.toolCalls.findLast(t => t.name === event.subToolName && t.result === null);
+          const tc =
+            (event.subToolCallId ? subTool.toolCalls.find(t => t.toolCallId === event.subToolCallId) : undefined) ??
+            subTool.toolCalls.findLast(t => t.name === event.subToolName && t.result === null);
           if (tc) {
             tc.isError = event.isError;
             tc.result =
