@@ -2656,12 +2656,7 @@ export class Harness<TState = {}> {
             subTool.toolCalls.findLast(t => t.name === event.subToolName && t.result === null);
           if (tc) {
             tc.isError = event.isError;
-            tc.result =
-              event.subToolResult !== null && event.subToolResult !== undefined
-                ? typeof event.subToolResult === 'string'
-                  ? event.subToolResult
-                  : JSON.stringify(event.subToolResult)
-                : null;
+            tc.result = serializeSubagentToolResult(event.subToolResult);
           }
         }
         break;
@@ -3130,5 +3125,20 @@ export class Harness<TState = {}> {
       return this.config.idGenerator();
     }
     return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
+function serializeSubagentToolResult(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '[unserializable]';
+    }
   }
 }

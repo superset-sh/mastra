@@ -672,6 +672,31 @@ describe('subagent lifecycle', () => {
     ]);
   });
 
+  it('stores a safe fallback when subagent tool results are not JSON-serializable', () => {
+    emit(harness, { type: 'subagent_start', toolCallId: 's1', agentType: 'explore', task: 't', modelId: 'm' });
+    emit(harness, {
+      type: 'subagent_tool_start',
+      toolCallId: 's1',
+      agentType: 'explore',
+      subToolCallId: 'read-1',
+      subToolName: 'read_file',
+      subToolArgs: { path: '/a.txt' },
+    });
+
+    emit(harness, {
+      type: 'subagent_tool_end',
+      toolCallId: 's1',
+      agentType: 'explore',
+      subToolCallId: 'read-1',
+      subToolName: 'read_file',
+      subToolResult: 42n,
+      isError: false,
+    });
+
+    const sub = harness.getDisplayState().activeSubagents.get('s1')!;
+    expect(sub.toolCalls[0]!.result).toBe('42');
+  });
+
   it('marks subagent as completed on subagent_end', () => {
     emit(harness, { type: 'subagent_start', toolCallId: 's1', agentType: 'execute', task: 't', modelId: 'm' });
     emit(harness, {

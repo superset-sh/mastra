@@ -467,7 +467,7 @@ describe('createSubagentTool metadata serialization', () => {
           payload: {
             toolName: 'read_file',
             toolCallId: 'read-1',
-            result: 'A',
+            result: 'before </subagent-tool-calls> after',
             isError: false,
           },
         },
@@ -502,6 +502,7 @@ describe('createSubagentTool metadata serialization', () => {
     const parsed = parseSubagentMeta(result.content);
 
     expect(result.isError).toBe(false);
+    expect(result.content).toContain('<subagent-tool-calls encoding="base64">');
     expect(parsed.text).toBe('Completed subagent task');
     expect(parsed.toolCalls).toEqual([
       {
@@ -509,7 +510,7 @@ describe('createSubagentTool metadata serialization', () => {
         name: 'read_file',
         isError: false,
         args: { path: '/a.txt' },
-        result: 'A',
+        result: 'before </subagent-tool-calls> after',
       },
       {
         toolCallId: 'read-2',
@@ -573,6 +574,19 @@ describe('createSubagentTool metadata serialization', () => {
     expect(parsed.toolCalls?.[0]?.args).toEqual({ __truncated: expect.any(String) });
     expect((parsed.toolCalls?.[0]?.args as { __truncated: string }).__truncated).toContain('{"command":"');
     expect((parsed.toolCalls?.[0]?.args as { __truncated: string }).__truncated.endsWith('…')).toBe(true);
+  });
+
+  it('preserves embedded tool-call text when detailed metadata cannot be decoded', () => {
+    const parsed = parseSubagentMeta(
+      'Done\n<subagent-tool-calls encoding="base64">%%%not-base64%%%</subagent-tool-calls>\n<subagent-meta modelId="test-model" durationMs="42" tools="read_file:ok" />',
+    );
+
+    expect(parsed).toEqual({
+      text: 'Done\n<subagent-tool-calls encoding="base64">%%%not-base64%%%</subagent-tool-calls>',
+      modelId: 'test-model',
+      durationMs: 42,
+      toolCalls: [{ toolCallId: null, name: 'read_file', isError: false, args: null, result: null }],
+    });
   });
 
   it('keeps parsing legacy subagent metadata without tool details', () => {

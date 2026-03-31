@@ -588,30 +588,63 @@ function sanitizeToolArgs(value: unknown): unknown | null {
   }
 }
 
+function encodeBase64(value: string): string {
+  return Buffer.from(value, 'utf-8').toString('base64');
+}
+
+function decodeBase64(value: string): string | null {
+  try {
+    return Buffer.from(value, 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build a metadata block appended to subagent results.
  * UIs can parse this to display model ID, duration, and per-tool args/results
  * when loading from history (where live events aren't available).
  *
  * Emits two blocks:
- * 1. `<subagent-tool-calls>` — JSON array with per-tool args and result
+ * 1. `<subagent-tool-calls>` — base64-encoded JSON array with per-tool args and result
  * 2. `<subagent-meta>` — legacy compact summary for backward compatibility
  */
 function buildSubagentMeta(modelId: string, durationMs: number, toolCalls: LoggedSubagentToolCall[]): string {
   const tools = toolCalls.map(tc => `${tc.name}:${tc.isError ? 'err' : 'ok'}`).join(',');
-  const toolDetails = JSON.stringify(
-    toolCalls.map(tc => ({
-      toolCallId: tc.toolCallId,
-      name: tc.name,
-      isError: tc.isError ?? false,
-      args: sanitizeToolArgs(tc.args),
-      result: truncateToolData(tc.result),
-    })),
+  const toolDetails = encodeBase64(
+    JSON.stringify(
+      toolCalls.map(tc => ({
+        toolCallId: tc.toolCallId,
+        name: tc.name,
+        isError: tc.isError ?? false,
+        args: sanitizeToolArgs(tc.args),
+        result: truncateToolData(tc.result),
+      })),
+    ),
   );
   return (
-    `\n<subagent-tool-calls>${toolDetails}</subagent-tool-calls>` +
+    `\n<subagent-tool-calls encoding="base64">${toolDetails}</subagent-tool-calls>` +
     `\n<subagent-meta modelId="${modelId}" durationMs="${durationMs}" tools="${tools}" />`
   );
+}
+
+function parseDetailedToolCalls(content: string): HarnessSubagentToolCall[] | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed)) return null;
+
+    return parsed
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map(item => ({
+        toolCallId: typeof item['toolCallId'] === 'string' ? item['toolCallId'] : null,
+        name: typeof item['name'] === 'string' ? item['name'] : 'tool',
+        isError: item['isError'] === true,
+        args: 'args' in item ? (item['args'] ?? null) : null,
+        result: typeof item['result'] === 'string' ? item['result'] : null,
+      }));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -625,27 +658,23 @@ export function parseSubagentMeta(content: string): {
   toolCalls?: HarnessSubagentToolCall[];
 } {
   // Extract detailed tool calls block first (new format)
-  const toolCallsMatch = content.match(/\n<subagent-tool-calls>([\s\S]*?)<\/subagent-tool-calls>/);
+  const toolCallsMatch = content.match(
+    /\n<subagent-tool-calls(?: encoding="([^"]+)")?>([\s\S]*?)<\/subagent-tool-calls>/,
+  );
   let detailedToolCalls: HarnessSubagentToolCall[] | null = null;
   let stripped = content;
   if (toolCallsMatch) {
-    try {
-      const parsed = JSON.parse(toolCallsMatch[1]!);
-      if (Array.isArray(parsed)) {
-        detailedToolCalls = parsed
-          .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-          .map(item => ({
-            toolCallId: typeof item['toolCallId'] === 'string' ? item['toolCallId'] : null,
-            name: typeof item['name'] === 'string' ? item['name'] : 'tool',
-            isError: item['isError'] === true,
-            args: 'args' in item ? (item['args'] ?? null) : null,
-            result: typeof item['result'] === 'string' ? item['result'] : null,
-          }));
+    const encoding = toolCallsMatch[1];
+    const rawPayload = toolCallsMatch[2]!;
+    const decodedPayload =
+      encoding === 'base64' ? decodeBase64(rawPayload) : encoding === undefined ? rawPayload : null;
+    if (decodedPayload !== null) {
+      detailedToolCalls = parseDetailedToolCalls(decodedPayload);
+      if (detailedToolCalls) {
+        stripped =
+          content.slice(0, toolCallsMatch.index) + content.slice(toolCallsMatch.index! + toolCallsMatch[0].length);
       }
-    } catch {
-      // fall through to legacy format
     }
-    stripped = content.slice(0, toolCallsMatch.index) + content.slice(toolCallsMatch.index! + toolCallsMatch[0].length);
   }
 
   const match = stripped.match(/\n<subagent-meta modelId="([^"]*)" durationMs="(\d+)" tools="([^"]*)" \/>$/);
