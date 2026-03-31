@@ -1,5 +1,22 @@
 # @mastra/playground-ui
 
+## 20.0.0-alpha.8
+
+### Patch Changes
+
+- dependencies updates: ([#14826](https://github.com/mastra-ai/mastra/pull/14826))
+  - Updated dependency [`@assistant-ui/react@^0.12.21` ↗︎](https://www.npmjs.com/package/@assistant-ui/react/v/0.12.21) (from `^0.12.19`, in `dependencies`)
+  - Updated dependency [`@assistant-ui/react-markdown@^0.12.7` ↗︎](https://www.npmjs.com/package/@assistant-ui/react-markdown/v/0.12.7) (from `^0.12.6`, in `dependencies`)
+
+- dependencies updates: ([#14827](https://github.com/mastra-ai/mastra/pull/14827))
+  - Updated dependency [`@uiw/codemirror-theme-dracula@^4.25.9` ↗︎](https://www.npmjs.com/package/@uiw/codemirror-theme-dracula/v/4.25.9) (from `^4.25.8`, in `dependencies`)
+  - Updated dependency [`@uiw/codemirror-theme-github@^4.25.9` ↗︎](https://www.npmjs.com/package/@uiw/codemirror-theme-github/v/4.25.9) (from `^4.25.8`, in `dependencies`)
+  - Updated dependency [`@uiw/react-codemirror@^4.25.9` ↗︎](https://www.npmjs.com/package/@uiw/react-codemirror/v/4.25.9) (from `^4.25.8`, in `dependencies`)
+- Updated dependencies [[`64f6b27`](https://github.com/mastra-ai/mastra/commit/64f6b276cb4f5030a957ba293bead2d89d490643)]:
+  - @mastra/core@1.18.0-alpha.4
+  - @mastra/client-js@1.11.0-alpha.7
+  - @mastra/react@0.2.18-alpha.7
+
 ## 20.0.0-alpha.7
 
 ### Patch Changes

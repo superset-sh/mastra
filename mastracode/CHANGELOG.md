@@ -1,5 +1,28 @@
 # mastracode
 
+## 0.10.0-alpha.7
+
+### Patch Changes
+
+- Renamed `images` to `files` in `harness.sendMessage(...)` to align with the AI SDK `FilePart` shape. ([`64f6b27`](https://github.com/mastra-ai/mastra/commit/64f6b276cb4f5030a957ba293bead2d89d490643))
+
+  **Migration**
+
+  Before:
+
+  ```ts
+  await harness.sendMessage({ content: 'Hi', images: [{ data, mimeType }] });
+  ```
+
+  After:
+
+  ```ts
+  await harness.sendMessage({ content: 'Hi', files: [{ data, mediaType, filename }] });
+  ```
+
+- Updated dependencies [[`64f6b27`](https://github.com/mastra-ai/mastra/commit/64f6b276cb4f5030a957ba293bead2d89d490643)]:
+  - @mastra/core@1.18.0-alpha.4
+
 ## 0.10.0-alpha.6
 
 ### Minor Changes

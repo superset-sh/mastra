@@ -27,7 +27,7 @@ vi.mock('../workspace/tools/tools', () => ({
   createWorkspaceTools: mockCreateWorkspaceTools,
 }));
 
-import { createSubagentTool } from './tools';
+import { createSubagentTool, parseSubagentMeta } from './tools';
 import type { HarnessRequestContext, HarnessSubagent } from './types';
 
 /**
@@ -431,5 +431,84 @@ describe('createSubagentTool allowedWorkspaceTools filtering', () => {
       expect.arrayContaining(['view', 'write_file', 'execute_command', 'task_write', 'task_check']),
     );
     expect(result.activeTools).toHaveLength(5);
+  });
+});
+
+describe('createSubagentTool metadata serialization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('stores subagent tool args and results in returned metadata', async () => {
+    mockStream.mockResolvedValue(
+      createMockStreamResponse('Completed subagent task', [
+        {
+          type: 'tool-call',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'subtool-1',
+            args: { path: '/hello.txt' },
+          },
+        },
+        {
+          type: 'tool-result',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'subtool-1',
+            result: '1 | Hello from workspace!',
+            isError: false,
+          },
+        },
+        {
+          type: 'text-delta',
+          payload: {
+            text: 'Completed subagent task',
+          },
+        },
+      ]),
+    );
+
+    const tool = createSubagentTool({
+      subagents,
+      resolveModel,
+      fallbackModelId: 'test-model',
+    });
+
+    const result = await (tool as any).execute(
+      { agentType: 'explore', task: 'Read hello.txt' },
+      { agent: { toolCallId: 'tc-meta-1' } },
+    );
+    const parsed = parseSubagentMeta(result.content);
+
+    expect(result.isError).toBe(false);
+    expect(parsed.text).toBe('Completed subagent task');
+    expect(parsed.toolCalls).toEqual([
+      {
+        name: 'read_file',
+        isError: false,
+        args: { path: '/hello.txt' },
+        result: '1 | Hello from workspace!',
+      },
+    ]);
+  });
+
+  it('keeps parsing legacy subagent metadata without tool details', () => {
+    const parsed = parseSubagentMeta(
+      'Done\n<subagent-meta modelId="test-model" durationMs="42" tools="read_file:ok,write_file:err" />',
+    );
+
+    expect(parsed).toEqual({
+      text: 'Done',
+      modelId: 'test-model',
+      durationMs: 42,
+      toolCalls: [
+        { name: 'read_file', isError: false, args: null, result: null },
+        { name: 'write_file', isError: true, args: null, result: null },
+      ],
+    });
   });
 });
