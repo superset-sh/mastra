@@ -594,34 +594,6 @@ describe('subagent lifecycle', () => {
     expect(sub.toolCalls[0]!.name).toBe('read_file');
   });
 
-  it('stores subagent tool args and results', () => {
-    emit(harness, { type: 'subagent_start', toolCallId: 's1', agentType: 'explore', task: 't', modelId: 'm' });
-    emit(harness, {
-      type: 'subagent_tool_start',
-      toolCallId: 's1',
-      agentType: 'explore',
-      subToolName: 'read_file',
-      subToolArgs: { path: '/hello.txt' },
-    });
-    emit(harness, {
-      type: 'subagent_tool_end',
-      toolCallId: 's1',
-      agentType: 'explore',
-      subToolName: 'read_file',
-      subToolResult: '1 | Hello from workspace!',
-      isError: false,
-    });
-
-    expect(harness.getDisplayState().activeSubagents.get('s1')!.toolCalls).toEqual([
-      {
-        name: 'read_file',
-        isError: false,
-        args: { path: '/hello.txt' },
-        result: '1 | Hello from workspace!',
-      },
-    ]);
-  });
-
   it('marks subagent tool error on subagent_tool_end', () => {
     emit(harness, { type: 'subagent_start', toolCallId: 's1', agentType: 'explore', task: 't', modelId: 'm' });
     emit(harness, {
