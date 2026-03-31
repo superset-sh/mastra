@@ -6,10 +6,18 @@ import type { MastraLanguageModel } from '../llm/model/shared.types';
 import { createTool } from '../tools/tool';
 import { createWorkspaceTools } from '../workspace/tools/tools';
 
-import type { HarnessRequestContext, HarnessSubagent } from './types';
+import type { HarnessRequestContext, HarnessSubagent, HarnessSubagentToolCall } from './types';
 
 let questionCounter = 0;
 let planCounter = 0;
+
+type LoggedSubagentToolCall = {
+  toolCallId: string;
+  name: string;
+  isError?: boolean;
+  args?: unknown;
+  result?: unknown;
+};
 
 /**
  * Built-in harness tool: ask the user a question and wait for their response.
@@ -433,7 +441,7 @@ Use this tool when:
       });
 
       let partialText = '';
-      const toolCallLog: Array<{ name: string; toolCallId: string; isError?: boolean }> = [];
+      const toolCallLog: LoggedSubagentToolCall[] = [];
 
       try {
         const response = await subagent.stream(task, {
@@ -467,11 +475,16 @@ Use this tool when:
               break;
 
             case 'tool-call':
-              toolCallLog.push({ name: chunk.payload.toolName, toolCallId: chunk.payload.toolCallId });
+              toolCallLog.push({
+                name: chunk.payload.toolName,
+                toolCallId: chunk.payload.toolCallId,
+                args: chunk.payload.args,
+              });
               emitEvent?.({
                 type: 'subagent_tool_start',
                 toolCallId,
                 agentType,
+                subToolCallId: chunk.payload.toolCallId,
                 subToolName: chunk.payload.toolName,
                 subToolArgs: chunk.payload.args,
               });
@@ -482,6 +495,7 @@ Use this tool when:
               for (let i = toolCallLog.length - 1; i >= 0; i--) {
                 if (toolCallLog[i]!.toolCallId === chunk.payload.toolCallId && toolCallLog[i]!.isError === undefined) {
                   toolCallLog[i]!.isError = isErr;
+                  toolCallLog[i]!.result = chunk.payload.result;
                   break;
                 }
               }
@@ -489,6 +503,7 @@ Use this tool when:
                 type: 'subagent_tool_end',
                 toolCallId,
                 agentType,
+                subToolCallId: chunk.payload.toolCallId,
                 subToolName: chunk.payload.toolName,
                 subToolResult: chunk.payload.result,
                 isError: isErr,
@@ -544,45 +559,142 @@ Use this tool when:
   });
 }
 
+const MAX_TOOL_DATA_CHARS = 2000;
+
+function truncateToolData(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  try {
+    const str = typeof value === 'string' ? value : JSON.stringify(value);
+    return str.length > MAX_TOOL_DATA_CHARS ? str.slice(0, MAX_TOOL_DATA_CHARS) + '…' : str;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeToolArgs(value: unknown): unknown | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'object') {
+    return truncateToolData(value);
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length <= MAX_TOOL_DATA_CHARS) {
+      return value;
+    }
+    return { __truncated: serialized.slice(0, MAX_TOOL_DATA_CHARS) + '…' };
+  } catch {
+    return null;
+  }
+}
+
+function encodeBase64(value: string): string {
+  return Buffer.from(value, 'utf-8').toString('base64');
+}
+
+function decodeBase64(value: string): string | null {
+  try {
+    return Buffer.from(value, 'base64').toString('utf-8');
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Build a metadata tag appended to subagent results.
- * UIs can parse this to display model ID, duration, and tool calls
+ * Build a metadata block appended to subagent results.
+ * UIs can parse this to display model ID, duration, and per-tool args/results
  * when loading from history (where live events aren't available).
+ *
+ * Emits two blocks:
+ * 1. `<subagent-tool-calls>` — base64-encoded JSON array with per-tool args and result
+ * 2. `<subagent-meta>` — legacy compact summary for backward compatibility
  */
-function buildSubagentMeta(
-  modelId: string,
-  durationMs: number,
-  toolCalls: Array<{ name: string; isError?: boolean }>,
-): string {
+function buildSubagentMeta(modelId: string, durationMs: number, toolCalls: LoggedSubagentToolCall[]): string {
   const tools = toolCalls.map(tc => `${tc.name}:${tc.isError ? 'err' : 'ok'}`).join(',');
-  return `\n<subagent-meta modelId="${modelId}" durationMs="${durationMs}" tools="${tools}" />`;
+  const toolDetails = encodeBase64(
+    JSON.stringify(
+      toolCalls.map(tc => ({
+        toolCallId: tc.toolCallId,
+        name: tc.name,
+        isError: tc.isError ?? false,
+        args: sanitizeToolArgs(tc.args),
+        result: truncateToolData(tc.result),
+      })),
+    ),
+  );
+  return (
+    `\n<subagent-tool-calls encoding="base64">${toolDetails}</subagent-tool-calls>` +
+    `\n<subagent-meta modelId="${modelId}" durationMs="${durationMs}" tools="${tools}" />`
+  );
+}
+
+function parseDetailedToolCalls(content: string): HarnessSubagentToolCall[] | null {
+  try {
+    const parsed = JSON.parse(content);
+    if (!Array.isArray(parsed)) return null;
+
+    return parsed
+      .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+      .map(item => ({
+        toolCallId: typeof item['toolCallId'] === 'string' ? item['toolCallId'] : null,
+        name: typeof item['name'] === 'string' ? item['name'] : 'tool',
+        isError: item['isError'] === true,
+        args: 'args' in item ? (item['args'] ?? null) : null,
+        result: typeof item['result'] === 'string' ? item['result'] : null,
+      }));
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Parse subagent metadata from a tool result string.
- * Returns the metadata and the cleaned result text (without the tag).
+ * Returns the metadata and the cleaned result text (without the tags).
  */
 export function parseSubagentMeta(content: string): {
   text: string;
   modelId?: string;
   durationMs?: number;
-  toolCalls?: Array<{ name: string; isError: boolean }>;
+  toolCalls?: HarnessSubagentToolCall[];
 } {
-  const match = content.match(/\n<subagent-meta modelId="([^"]*)" durationMs="(\d+)" tools="([^"]*)" \/>$/);
-  if (!match) return { text: content };
+  // Extract detailed tool calls block first (new format)
+  const toolCallsMatch = content.match(
+    /\n<subagent-tool-calls(?: encoding="([^"]+)")?>([\s\S]*?)<\/subagent-tool-calls>/,
+  );
+  let detailedToolCalls: HarnessSubagentToolCall[] | null = null;
+  let stripped = content;
+  if (toolCallsMatch) {
+    const encoding = toolCallsMatch[1];
+    const rawPayload = toolCallsMatch[2]!;
+    const decodedPayload =
+      encoding === 'base64' ? decodeBase64(rawPayload) : encoding === undefined ? rawPayload : null;
+    if (decodedPayload !== null) {
+      detailedToolCalls = parseDetailedToolCalls(decodedPayload);
+      if (detailedToolCalls) {
+        stripped =
+          content.slice(0, toolCallsMatch.index) + content.slice(toolCallsMatch.index! + toolCallsMatch[0].length);
+      }
+    }
+  }
 
-  const text = content.slice(0, match.index!);
+  const match = stripped.match(/\n<subagent-meta modelId="([^"]*)" durationMs="(\d+)" tools="([^"]*)" \/>$/);
+  if (!match) return { text: stripped };
+
+  const text = stripped.slice(0, match.index!);
   const modelId = match[1];
   const durationMs = parseInt(match[2]!, 10);
-  const toolCalls = match[3]
-    ? match[3]
-        .split(',')
-        .filter(Boolean)
-        .map(entry => {
-          const [name, status] = entry.split(':');
-          return { name: name!, isError: status === 'err' };
-        })
-    : [];
+
+  const toolCalls =
+    detailedToolCalls ??
+    (match[3]
+      ? match[3]
+          .split(',')
+          .filter(Boolean)
+          .map(entry => {
+            const [name, status] = entry.split(':');
+            return { toolCallId: null, name: name!, isError: status === 'err', args: null, result: null };
+          })
+      : []);
 
   return { text, modelId, durationMs, toolCalls };
 }

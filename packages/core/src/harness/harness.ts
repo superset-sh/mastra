@@ -2637,7 +2637,13 @@ export class Harness<TState = {}> {
       case 'subagent_tool_start': {
         const subAgent = ds.activeSubagents.get(event.toolCallId);
         if (subAgent) {
-          subAgent.toolCalls.push({ name: event.subToolName, isError: false });
+          subAgent.toolCalls.push({
+            toolCallId: event.subToolCallId ?? null,
+            name: event.subToolName,
+            isError: false,
+            args: event.subToolArgs ?? null,
+            result: null,
+          });
         }
         break;
       }
@@ -2645,9 +2651,12 @@ export class Harness<TState = {}> {
       case 'subagent_tool_end': {
         const subTool = ds.activeSubagents.get(event.toolCallId);
         if (subTool) {
-          const tc = subTool.toolCalls.find(t => t.name === event.subToolName && !t.isError);
+          const tc =
+            (event.subToolCallId ? subTool.toolCalls.find(t => t.toolCallId === event.subToolCallId) : undefined) ??
+            subTool.toolCalls.findLast(t => t.name === event.subToolName && t.result === null);
           if (tc) {
             tc.isError = event.isError;
+            tc.result = serializeSubagentToolResult(event.subToolResult);
           }
         }
         break;
@@ -3116,5 +3125,20 @@ export class Harness<TState = {}> {
       return this.config.idGenerator();
     }
     return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  }
+}
+
+function serializeSubagentToolResult(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '[unserializable]';
+    }
   }
 }

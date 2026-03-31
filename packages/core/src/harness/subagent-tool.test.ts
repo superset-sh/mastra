@@ -27,7 +27,7 @@ vi.mock('../workspace/tools/tools', () => ({
   createWorkspaceTools: mockCreateWorkspaceTools,
 }));
 
-import { createSubagentTool } from './tools';
+import { createSubagentTool, parseSubagentMeta } from './tools';
 import type { HarnessRequestContext, HarnessSubagent } from './types';
 
 /**
@@ -431,5 +431,177 @@ describe('createSubagentTool allowedWorkspaceTools filtering', () => {
       expect.arrayContaining(['view', 'write_file', 'execute_command', 'task_write', 'task_check']),
     );
     expect(result.activeTools).toHaveLength(5);
+  });
+});
+
+describe('createSubagentTool metadata serialization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('includes sub-tool ids, args, and results in stored metadata', async () => {
+    mockStream.mockResolvedValue(
+      createMockStreamResponse('Completed subagent task', [
+        {
+          type: 'tool-call',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'read-1',
+            args: { path: '/a.txt' },
+          },
+        },
+        {
+          type: 'tool-call',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'read-2',
+            args: { path: '/b.txt' },
+          },
+        },
+        {
+          type: 'tool-result',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'read-1',
+            result: 'before </subagent-tool-calls> after',
+            isError: false,
+          },
+        },
+        {
+          type: 'tool-result',
+          payload: {
+            toolName: 'read_file',
+            toolCallId: 'read-2',
+            result: 'B',
+            isError: false,
+          },
+        },
+        {
+          type: 'text-delta',
+          payload: {
+            text: 'Completed subagent task',
+          },
+        },
+      ]),
+    );
+
+    const tool = createSubagentTool({
+      subagents,
+      resolveModel,
+      fallbackModelId: 'test-model',
+    });
+
+    const result = await (tool as any).execute(
+      { agentType: 'explore', task: 'Read files' },
+      { agent: { toolCallId: 'tc-meta-1' } },
+    );
+    const parsed = parseSubagentMeta(result.content);
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('<subagent-tool-calls encoding="base64">');
+    expect(parsed.text).toBe('Completed subagent task');
+    expect(parsed.toolCalls).toEqual([
+      {
+        toolCallId: 'read-1',
+        name: 'read_file',
+        isError: false,
+        args: { path: '/a.txt' },
+        result: 'before </subagent-tool-calls> after',
+      },
+      {
+        toolCallId: 'read-2',
+        name: 'read_file',
+        isError: false,
+        args: { path: '/b.txt' },
+        result: 'B',
+      },
+    ]);
+  });
+
+  it('bounds oversized args in stored metadata', async () => {
+    const hugeArg = 'x'.repeat(2105);
+    mockStream.mockResolvedValue(
+      createMockStreamResponse('Done', [
+        {
+          type: 'tool-call',
+          payload: {
+            toolName: 'bash',
+            toolCallId: 'bash-1',
+            args: { command: hugeArg },
+          },
+        },
+        {
+          type: 'tool-result',
+          payload: {
+            toolName: 'bash',
+            toolCallId: 'bash-1',
+            result: 'ok',
+            isError: false,
+          },
+        },
+        {
+          type: 'text-delta',
+          payload: {
+            text: 'Done',
+          },
+        },
+      ]),
+    );
+
+    const tool = createSubagentTool({
+      subagents,
+      resolveModel,
+      fallbackModelId: 'test-model',
+    });
+
+    const result = await (tool as any).execute(
+      { agentType: 'explore', task: 'Run bash' },
+      { agent: { toolCallId: 'tc-meta-2' } },
+    );
+    const parsed = parseSubagentMeta(result.content);
+
+    expect(parsed.toolCalls).toHaveLength(1);
+    expect(parsed.toolCalls?.[0]).toMatchObject({
+      toolCallId: 'bash-1',
+      name: 'bash',
+      isError: false,
+      result: 'ok',
+    });
+    expect(parsed.toolCalls?.[0]?.args).toEqual({ __truncated: expect.any(String) });
+    expect((parsed.toolCalls?.[0]?.args as { __truncated: string }).__truncated).toContain('{"command":"');
+    expect((parsed.toolCalls?.[0]?.args as { __truncated: string }).__truncated.endsWith('…')).toBe(true);
+  });
+
+  it('preserves embedded tool-call text when detailed metadata cannot be decoded', () => {
+    const parsed = parseSubagentMeta(
+      'Done\n<subagent-tool-calls encoding="base64">%%%not-base64%%%</subagent-tool-calls>\n<subagent-meta modelId="test-model" durationMs="42" tools="read_file:ok" />',
+    );
+
+    expect(parsed).toEqual({
+      text: 'Done\n<subagent-tool-calls encoding="base64">%%%not-base64%%%</subagent-tool-calls>',
+      modelId: 'test-model',
+      durationMs: 42,
+      toolCalls: [{ toolCallId: null, name: 'read_file', isError: false, args: null, result: null }],
+    });
+  });
+
+  it('keeps parsing legacy subagent metadata without tool details', () => {
+    const parsed = parseSubagentMeta(
+      'Done\n<subagent-meta modelId="test-model" durationMs="42" tools="read_file:ok,write_file:err" />',
+    );
+
+    expect(parsed).toEqual({
+      text: 'Done',
+      modelId: 'test-model',
+      durationMs: 42,
+      toolCalls: [
+        { toolCallId: null, name: 'read_file', isError: false, args: null, result: null },
+        { toolCallId: null, name: 'write_file', isError: true, args: null, result: null },
+      ],
+    });
   });
 });
