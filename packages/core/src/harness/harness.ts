@@ -1281,12 +1281,20 @@ export class Harness<TState = {}> {
     tracingContext,
     tracingOptions,
     requestContext: requestContextInput,
+    preloadSkills,
   }: {
     content: string;
     files?: Array<{ data: string; mediaType: string; filename?: string }>;
     tracingContext?: TracingContext;
     tracingOptions?: TracingOptions;
     requestContext?: RequestContext;
+    /**
+     * Skill names to load before the LLM processes the user message.
+     * For each name, the agent will call the skill tool before responding,
+     * making the skill content available as context. The tool calls appear
+     * in the conversation UI immediately on submission.
+     */
+    preloadSkills?: string[];
   }): Promise<void> {
     if (!this.currentThreadId) {
       const thread = await this.createThread();
@@ -1316,7 +1324,14 @@ export class Harness<TState = {}> {
 
       streamOptions.toolsets = await this.buildToolsets(requestContext);
 
-      let messageInput: string | Record<string, unknown> = content;
+      // Prepend skill loading instructions when the caller has requested pre-loading.
+      // The agent calls the skill tool for each name before responding, surfacing
+      // visible tool call blocks in the UI immediately on submission.
+      const effectiveContent = preloadSkills?.length
+        ? `<system>The user has invoked the following skills. Before responding to their request, you MUST call the skill tool once for each skill listed here — do not skip or defer this step:\n${preloadSkills.map(s => `  - ${s}`).join('\n')}\n</system>\n\n${content}`
+        : content;
+
+      let messageInput: string | Record<string, unknown> = effectiveContent;
       if (files?.length) {
         const fileParts = files.map(f => {
           const isText = f.mediaType.startsWith('text/') || f.mediaType === 'application/json';
@@ -1343,7 +1358,7 @@ export class Harness<TState = {}> {
         });
         messageInput = {
           role: 'user',
-          content: [{ type: 'text', text: content }, ...fileParts],
+          content: [{ type: 'text', text: effectiveContent }, ...fileParts],
         };
       }
 
